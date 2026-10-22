@@ -294,6 +294,17 @@ impl App {
         #[cfg(windows)]
         {
             if !params.force {
+                if crate::worktree::checkout_has_initialized_submodules(&space.checkout_path) {
+                    Self::send_api_response(
+                        respond_to,
+                        encode_error(
+                            id,
+                            "submodule_worktree_requires_force",
+                            crate::worktree::SUBMODULE_WORKTREE_REMOVE_ERROR,
+                        ),
+                    );
+                    return;
+                }
                 if crate::worktree::checkout_has_dirty_files(
                     &space.checkout_path,
                     params.trust_repository,
@@ -306,17 +317,6 @@ impl App {
                             id,
                             "dirty_worktree_requires_force",
                             crate::worktree::worktree_dirty_remove_message(&space.checkout_path),
-                        ),
-                    );
-                    return;
-                }
-                if crate::worktree::checkout_has_initialized_submodules(&space.checkout_path) {
-                    Self::send_api_response(
-                        respond_to,
-                        encode_error(
-                            id,
-                            "submodule_worktree_requires_force",
-                            crate::worktree::SUBMODULE_WORKTREE_REMOVE_ERROR,
                         ),
                     );
                     return;

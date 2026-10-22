@@ -250,9 +250,8 @@ pub(crate) fn checkout_has_initialized_submodules(path: &Path) -> bool {
     let Some(gitdir) = checkout_gitdir(path) else {
         return false;
     };
-    std::fs::read_dir(gitdir.join("modules"))
-        .map(|mut entries| entries.next().is_some())
-        .unwrap_or(false)
+    // Git refuses even an empty modules directory.
+    gitdir.join("modules").is_dir()
 }
 
 pub(crate) fn build_worktree_add_new_branch_command(
@@ -369,54 +368,61 @@ pub(crate) fn run_worktree_remove_command_with_recovery(
     force: bool,
     trust_repository: bool,
 ) -> Result<(), String> {
-    // Capture the checkout identity before Git removes `.git`. A forced removal
-    // can unregister the worktree and then fail to delete the directory, at
-    // which point the checkout no longer proves it belongs to this repository.
-    let checkout_identity = force.then(|| checkout_gitdir(path)).flatten();
-    let has_leftover_lease = worktree_remove_leftover_marker_exists(path);
+    let Some(worktrees_dir) = git_common_worktrees_dir(repo_root, trust_repository) else {
+        return run_worktree_command(command);
+    };
+    let marker = worktree_remove_leftover_marker_path(&worktrees_dir, path);
+    let known_checkout =
+        checkout_gitdir(path).is_some_and(|gitdir| gitdir_belongs_to_repo(&gitdir, &worktrees_dir));
+    let identity = if known_checkout {
+        let identity = crate::platform::directory_identity(path)
+            .map_err(|error| format!("could not identify worktree checkout: {error}"))?;
+        // Persist before Git can remove `.git` or unregister a partial deletion.
+        mark_worktree_remove_leftover(&marker, &identity)?;
+        Some(identity)
+    } else {
+        read_worktree_remove_leftover(&marker)
+    };
     match run_worktree_command(command) {
         Ok(()) => {
-            clear_worktree_remove_leftover(path);
+            clear_worktree_remove_leftover(&marker);
             Ok(())
         }
-        Err(err) if !force => Err(err),
         Err(err) => {
             if worktree_list_contains_path(repo_root, path, trust_repository)? {
+                if path.join(".git").is_file() {
+                    clear_worktree_remove_leftover(&marker);
+                }
                 return Err(err);
             }
-            if !path.exists() {
-                clear_worktree_remove_leftover(path);
+            if !force {
+                return Err(err);
+            }
+            if !path.try_exists().map_err(|error| error.to_string())? {
+                clear_worktree_remove_leftover(&marker);
                 return Ok(());
             }
-            let current_identity = checkout_gitdir(path)
-                .as_deref()
-                .is_some_and(|gitdir| gitdir_belongs_to_repo(gitdir, repo_root, trust_repository));
-            // A replacement repository at the checkout path has its own `.git`,
-            // which does not identify this repository's linked worktree.
-            if path.join(".git").exists() && !current_identity {
-                clear_worktree_remove_leftover(path);
+            let Some(identity) = identity else {
                 return Err(err);
-            }
-            let known_checkout = current_identity
-                || checkout_identity.as_deref().is_some_and(|gitdir| {
-                    gitdir_belongs_to_repo(gitdir, repo_root, trust_repository)
-                })
-                || has_leftover_lease;
-            if !known_checkout {
+            };
+            let current_identity = crate::platform::directory_identity(path)
+                .map_err(|error| format!("{err}; could not identify leftover checkout: {error}"))?;
+            let replacement_repository = std::fs::symlink_metadata(path.join(".git")).is_ok()
+                && !checkout_gitdir(path)
+                    .is_some_and(|gitdir| gitdir_belongs_to_repo(&gitdir, &worktrees_dir));
+            if current_identity != identity || replacement_repository {
+                clear_worktree_remove_leftover(&marker);
                 return Err(err);
             }
             match std::fs::remove_dir_all(path) {
                 Ok(()) => {
-                    clear_worktree_remove_leftover(path);
+                    clear_worktree_remove_leftover(&marker);
                     Ok(())
                 }
-                Err(remove_err) => {
-                    mark_worktree_remove_leftover(path);
-                    Err(format!(
-                        "{err}; failed to remove leftover checkout {}: {remove_err}",
-                        path.display()
-                    ))
-                }
+                Err(remove_err) => Err(format!(
+                    "{err}; failed to remove leftover checkout {}: {remove_err}",
+                    path.display()
+                )),
             }
         }
     }
@@ -424,28 +430,63 @@ pub(crate) fn run_worktree_remove_command_with_recovery(
 
 const WORKTREE_REMOVE_LEFTOVER_DIR: &str = "herdr-worktree-remove-leftovers";
 
-fn worktree_remove_leftover_marker_path(path: &Path) -> PathBuf {
+fn worktree_remove_leftover_marker_path(worktrees_dir: &Path, path: &Path) -> PathBuf {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(canonical_or_original(path).as_os_str().as_encoded_bytes());
-    std::env::temp_dir()
-        .join(WORKTREE_REMOVE_LEFTOVER_DIR)
+    // The parent still resolves after the checkout itself has been deleted.
+    let key = match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => canonical_or_original(parent).join(name),
+        _ => canonical_or_original(path),
+    };
+    let digest = Sha256::digest(key.as_os_str().as_encoded_bytes());
+    worktrees_dir
+        .with_file_name(WORKTREE_REMOVE_LEFTOVER_DIR)
         .join(format!("{digest:x}"))
 }
 
-fn worktree_remove_leftover_marker_exists(path: &Path) -> bool {
-    worktree_remove_leftover_marker_path(path).is_file()
-}
-
-fn mark_worktree_remove_leftover(path: &Path) {
-    let marker = worktree_remove_leftover_marker_path(path);
-    if let Some(parent) = marker.parent() {
-        let _ = std::fs::create_dir_all(parent);
+fn read_worktree_remove_leftover(marker: &Path) -> Option<crate::platform::DirectoryIdentity> {
+    if !std::fs::symlink_metadata(marker).ok()?.is_file() {
+        return None;
     }
-    let _ = std::fs::write(marker, canonical_or_original(path).display().to_string());
+    serde_json::from_slice(&std::fs::read(marker).ok()?).ok()
 }
 
-fn clear_worktree_remove_leftover(path: &Path) {
-    let _ = std::fs::remove_file(worktree_remove_leftover_marker_path(path));
+fn mark_worktree_remove_leftover(
+    marker: &Path,
+    identity: &crate::platform::DirectoryIdentity,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    if let Ok(metadata) = std::fs::symlink_metadata(marker) {
+        if !metadata.is_file() {
+            return Err("refusing to write worktree recovery state through a non-file path".into());
+        }
+    }
+    let parent = marker
+        .parent()
+        .ok_or("invalid worktree recovery state path")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pending = marker.with_extension(format!("{}-{stamp}.pending", std::process::id()));
+    let bytes = serde_json::to_vec(identity).map_err(|error| error.to_string())?;
+    let result = (|| {
+        let mut file = crate::platform::create_private_state_file(&pending)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        crate::platform::replace_file(&pending, marker)?;
+        crate::platform::sync_parent_directory(parent)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(pending);
+    }
+    result.map_err(|error| format!("could not save worktree recovery state: {error}"))
+}
+
+fn clear_worktree_remove_leftover(marker: &Path) {
+    let _ = std::fs::remove_file(marker);
 }
 
 fn checkout_gitdir(path: &Path) -> Option<PathBuf> {
@@ -462,11 +503,8 @@ fn checkout_gitdir(path: &Path) -> Option<PathBuf> {
     })
 }
 
-fn gitdir_belongs_to_repo(gitdir: &Path, repo_root: &Path, trust_repository: bool) -> bool {
-    let Some(worktrees_dir) = git_common_worktrees_dir(repo_root, trust_repository) else {
-        return false;
-    };
-    canonical_or_original(gitdir).starts_with(canonical_or_original(&worktrees_dir))
+fn gitdir_belongs_to_repo(gitdir: &Path, worktrees_dir: &Path) -> bool {
+    canonical_or_original(gitdir).parent() == Some(canonical_or_original(worktrees_dir).as_path())
 }
 
 fn git_common_worktrees_dir(repo_root: &Path, trust_repository: bool) -> Option<PathBuf> {
@@ -985,6 +1023,14 @@ prunable stale
         );
         run_worktree_command(&add).unwrap();
         assert!(!checkout_has_initialized_submodules(&checkout));
+        let modules = checkout_gitdir(&checkout).unwrap().join("modules");
+        std::fs::create_dir(&modules).unwrap();
+        let remove = build_worktree_remove_command(&repo, &checkout, false, false);
+        assert!(checkout_has_initialized_submodules(&checkout));
+        assert!(is_submodule_worktree_remove_error(
+            &run_worktree_command(&remove).unwrap_err()
+        ));
+        std::fs::remove_dir(modules).unwrap();
         run_git(
             &checkout,
             &[
@@ -1131,19 +1177,30 @@ prunable stale
         let add = build_worktree_add_new_branch_command(&repo, &checkout, branch, "HEAD", false);
         run_worktree_command(&add).unwrap();
         let remove = build_worktree_remove_command(&repo, &checkout, true, false);
-        run_worktree_command(&remove).unwrap();
-        std::fs::create_dir_all(&checkout).unwrap();
-        std::fs::write(checkout.join("leftover"), "leftover\n").unwrap();
+        let marker = worktree_remove_leftover_marker_path(
+            &git_common_worktrees_dir(&repo, false).unwrap(),
+            &checkout,
+        );
+        mark_worktree_remove_leftover(
+            &marker,
+            &crate::platform::directory_identity(&checkout).unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(checkout.join(".git")).unwrap();
+        run_git(&repo, &["worktree", "prune", "--expire", "now"]);
 
-        // Git unregistered the worktree and deleted `.git` before it failed to
-        // remove the directory. A confirmed forced removal of the workspace's
-        // checkout may still clean up the leftover.
-        mark_worktree_remove_leftover(&checkout);
-        assert!(worktree_remove_leftover_marker_exists(&checkout));
+        // A later request has only the persisted identity and no checkout gitdir.
         run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false).unwrap();
 
         assert!(!checkout.exists());
-        assert!(!worktree_remove_leftover_marker_exists(&checkout));
+        assert!(!marker.exists());
+        assert_eq!(
+            worktree_remove_leftover_marker_path(
+                &git_common_worktrees_dir(&repo, false).unwrap(),
+                &checkout,
+            ),
+            marker
+        );
         let _ = std::fs::remove_dir_all(repo);
     }
 
@@ -1155,14 +1212,21 @@ prunable stale
         run_git(&checkout, &["init", "--quiet"]);
 
         let remove = build_worktree_remove_command(&repo, &checkout, true, false);
-        mark_worktree_remove_leftover(&checkout);
+        let marker = worktree_remove_leftover_marker_path(
+            &git_common_worktrees_dir(&repo, false).unwrap(),
+            &checkout,
+        );
+        mark_worktree_remove_leftover(
+            &marker,
+            &crate::platform::directory_identity(&checkout).unwrap(),
+        )
+        .unwrap();
         let err = run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false)
             .expect_err("replacement repository should not be removed");
 
         assert!(is_not_working_tree_remove_error(&err));
         assert!(checkout.join(".git").exists());
-        assert!(!worktree_remove_leftover_marker_exists(&checkout));
-        clear_worktree_remove_leftover(&checkout);
+        assert!(!marker.exists());
         let _ = std::fs::remove_dir_all(checkout);
         let _ = std::fs::remove_dir_all(repo);
     }
@@ -1176,7 +1240,19 @@ prunable stale
         let add = build_worktree_add_new_branch_command(&repo, &checkout, branch, "HEAD", false);
         run_worktree_command(&add).unwrap();
         let remove = build_worktree_remove_command(&repo, &checkout, true, false);
-        run_worktree_command(&remove).unwrap();
+        let marker = worktree_remove_leftover_marker_path(
+            &git_common_worktrees_dir(&repo, false).unwrap(),
+            &checkout,
+        );
+        mark_worktree_remove_leftover(
+            &marker,
+            &crate::platform::directory_identity(&checkout).unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(checkout.join(".git")).unwrap();
+        run_git(&repo, &["worktree", "prune", "--expire", "now"]);
+        let original = checkout.with_extension("original");
+        std::fs::rename(&checkout, &original).unwrap();
         std::fs::create_dir_all(&checkout).unwrap();
         std::fs::write(checkout.join("unrelated"), "do not delete\n").unwrap();
 
@@ -1185,7 +1261,101 @@ prunable stale
 
         assert!(is_not_working_tree_remove_error(&err));
         assert!(checkout.join("unrelated").exists());
+        assert!(!marker.exists());
         let _ = std::fs::remove_dir_all(checkout);
+        let _ = std::fs::remove_dir_all(original);
         let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn forced_worktree_remove_preserves_checkout_when_recovery_state_cannot_be_written() {
+        let repo = create_committed_repo("worktree-recovery-write-failure");
+        let checkout = unique_temp_path("worktree-recovery-write-failure-checkout");
+        let add = build_worktree_add_new_branch_command(
+            &repo,
+            &checkout,
+            "worktree/write-failure",
+            "HEAD",
+            false,
+        );
+        run_worktree_command(&add).unwrap();
+        let marker = worktree_remove_leftover_marker_path(
+            &git_common_worktrees_dir(&repo, false).unwrap(),
+            &checkout,
+        );
+        std::fs::write(marker.parent().unwrap(), "not a directory\n").unwrap();
+        let remove = build_worktree_remove_command(&repo, &checkout, true, false);
+        assert!(
+            run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false,)
+                .is_err()
+        );
+        assert!(checkout.join("README.md").is_file());
+        assert!(checkout.join(".git").is_file());
+        assert!(worktree_list_contains_path(&repo, &checkout, false).unwrap());
+
+        run_worktree_command(&remove).unwrap();
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn forced_worktree_remove_retries_partial_deletion_after_file_lock_is_released() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        for force in [false, true] {
+            let repo = create_committed_repo("worktree-recovery-locked-file");
+            std::fs::write(repo.join(".git/info/exclude"), "locked\n").unwrap();
+            let checkout = unique_temp_path("worktree-recovery-locked-file-checkout");
+            let add = build_worktree_add_new_branch_command(
+                &repo,
+                &checkout,
+                "worktree/locked-file",
+                "HEAD",
+                false,
+            );
+            run_worktree_command(&add).unwrap();
+            std::fs::write(checkout.join("locked"), "held by another process\n").unwrap();
+            let held = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(checkout.join("locked"))
+                .unwrap();
+            let marker = worktree_remove_leftover_marker_path(
+                &git_common_worktrees_dir(&repo, false).unwrap(),
+                &checkout,
+            );
+            let remove = build_worktree_remove_command(&repo, &checkout, true, false);
+            let initial_remove = build_worktree_remove_command(&repo, &checkout, force, false);
+            run_worktree_remove_command_with_recovery(
+                &initial_remove,
+                &repo,
+                &checkout,
+                force,
+                false,
+            )
+            .unwrap_err();
+            assert!(!checkout.join(".git").exists());
+            assert!(!worktree_list_contains_path(&repo, &checkout, false).unwrap());
+            assert!(read_worktree_remove_leftover(&marker).is_some());
+            let held_directory = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
+                .open(&checkout)
+                .unwrap();
+            assert!(run_worktree_remove_command_with_recovery(
+                &remove, &repo, &checkout, true, false,
+            )
+            .is_err());
+            assert!(read_worktree_remove_leftover(&marker).is_some());
+            drop(held_directory);
+            drop(held);
+
+            run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false)
+                .unwrap();
+            assert!(!checkout.exists());
+            assert!(!marker.exists());
+            let _ = std::fs::remove_dir_all(repo);
+        }
     }
 }

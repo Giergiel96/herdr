@@ -2183,22 +2183,27 @@ mod tests {
         let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         app.terminal_runtimes.insert(terminal_id.clone(), runtime);
 
-        let response = run_deferred_api_request(
-            &mut app,
-            Request {
-                id: "req".into(),
-                method: crate::api::schema::Method::WorktreeRemove(WorktreeRemoveParams {
-                    workspace_id: child_id.clone(),
-                    force: false,
-                    trust_repository: false,
-                }),
-            },
-        );
-        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "submodule_worktree_requires_force");
-        assert!(checkout.exists());
-        assert!(app.terminal_runtimes.get(&terminal_id).is_some());
-        assert!(app.pending_worktree_remove_runtime_exits.is_empty());
+        for dirty in [false, true] {
+            if dirty {
+                std::fs::write(checkout.join("sub/README.md"), "uncommitted work\n").unwrap();
+            }
+            let response = run_deferred_api_request(
+                &mut app,
+                Request {
+                    id: "req".into(),
+                    method: crate::api::schema::Method::WorktreeRemove(WorktreeRemoveParams {
+                        workspace_id: child_id.clone(),
+                        force: false,
+                        trust_repository: false,
+                    }),
+                },
+            );
+            let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+            assert_eq!(error.error.code, "submodule_worktree_requires_force");
+            assert!(checkout.exists());
+            assert!(app.terminal_runtimes.get(&terminal_id).is_some());
+            assert!(app.pending_worktree_remove_runtime_exits.is_empty());
+        }
 
         let response = run_deferred_api_request(
             &mut app,
