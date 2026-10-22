@@ -353,15 +353,24 @@ pub(super) fn render_worktree_remove_overlay(
             inner.x,
             inner.y + 4,
             inner.width,
-            " Dirty files and unpushed submodule work will be permanently deleted.",
+            " Uncommitted or unpushed work in this checkout",
             Style::default().fg(p.red).bg(p.panel_bg),
         );
-    }
-    if remove.removing {
         put_text(
             b,
             inner.x,
             inner.y + 5,
+            inner.width,
+            " or its submodules will be permanently deleted.",
+            Style::default().fg(p.red).bg(p.panel_bg),
+        );
+    }
+    let status_y = inner.y + if remove.force_confirmation { 6 } else { 5 };
+    if remove.removing {
+        put_text(
+            b,
+            inner.x,
+            status_y,
             inner.width,
             " removing…",
             Style::default().fg(p.accent).bg(p.panel_bg),
@@ -370,7 +379,7 @@ pub(super) fn render_worktree_remove_overlay(
         put_text(
             b,
             inner.x,
-            inner.y + 5,
+            status_y,
             inner.width,
             &format!(" {error}"),
             Style::default().fg(p.red).bg(p.panel_bg),

@@ -1487,7 +1487,7 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
             continue;
         }
         assert!(remove.error.is_none());
-        let frame = state.compose(106, 30).expect("force remove modal");
+        let frame = state.compose(60, 20).expect("force remove modal");
         let text = frame
             .cells
             .chunks(frame.width as usize)

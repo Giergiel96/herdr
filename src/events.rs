@@ -50,6 +50,9 @@ pub struct WorktreeRemoveResult {
     pub forced: bool,
     pub api_request: Option<ApiWorktreeRemoveRequest>,
     pub result: Result<(), String>,
+    /// Git unregistered the checkout but left files behind that could not be
+    /// removed yet. A later forced retry may finish cleaning this path.
+    pub leftover_pending: bool,
 }
 
 #[derive(Debug)]
