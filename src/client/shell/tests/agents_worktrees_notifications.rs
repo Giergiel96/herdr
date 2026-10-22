@@ -1487,32 +1487,27 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
             continue;
         }
         assert!(remove.error.is_none());
-        let frame = state.compose(60, 20).expect("force remove modal");
-        let text = frame
-            .cells
-            .chunks(frame.width as usize)
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.symbol.as_str())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("delete anyway"));
-        assert!(text.contains("permanently deleted"));
-        let compact = state.compose(60, 11).expect("compact force remove modal");
-        let compact_text = compact
-            .cells
-            .chunks(compact.width as usize)
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.symbol.as_str())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(compact_text.contains("delete anyway"));
-        assert!(compact_text.contains("Uncommitted or unpushed work will be deleted."));
+        for height in [20, 11] {
+            let frame = state.compose(60, height).expect("force remove modal");
+            let rows = frame
+                .cells
+                .chunks(frame.width as usize)
+                .map(|row| {
+                    row.iter()
+                        .map(|cell| cell.symbol.as_str())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>();
+            let warning = rows
+                .iter()
+                .position(|row| row.contains("Uncommitted or unpushed work will be deleted."))
+                .expect("force warning must remain visible");
+            let confirm = rows
+                .iter()
+                .position(|row| row.contains("delete anyway"))
+                .expect("force button must remain visible");
+            assert!(warning < confirm);
+        }
         let force = state.handle_input_bytes(b"\r");
         let [ClientShellAction::Endpoint { request, .. }] = &force.actions[..] else {
             panic!("forced worktree remove should use endpoint API");

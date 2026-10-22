@@ -3,13 +3,6 @@
 //! Centralizes OS-dependent behavior behind a clean boundary so core
 //! modules don't scatter `#[cfg]` branches through product logic.
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct DirectoryIdentity {
-    pub volume: u64,
-    pub file: u64,
-    pub created: std::time::SystemTime,
-}
-
 #[cfg(unix)]
 pub(crate) mod ssh_agent;
 
@@ -555,9 +548,8 @@ impl PtyInputGuard {
 pub(crate) mod unix_image_files;
 #[cfg(unix)]
 pub(crate) use unix_common::{
-    begin_cli_output, directory_identity, end_cli_output, forward_remote_bridge_stdio,
-    ignore_server_hangup, local_stream_peer_description, spawn_server_signal_monitor, ChildPipe,
-    RemoteBridgeWake,
+    begin_cli_output, end_cli_output, forward_remote_bridge_stdio, ignore_server_hangup,
+    local_stream_peer_description, spawn_server_signal_monitor, ChildPipe, RemoteBridgeWake,
 };
 
 mod client_state;

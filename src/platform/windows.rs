@@ -25,35 +25,6 @@ pub(crate) use power::monitor_host_power;
 
 static ALLOW_UNELEVATED_CLIENTS: OnceLock<bool> = OnceLock::new();
 
-pub(crate) fn directory_identity(
-    path: &std::path::Path,
-) -> std::io::Result<super::DirectoryIdentity> {
-    use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    };
-
-    let directory = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)?;
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    if unsafe { GetFileInformationByHandle(directory.as_raw_handle(), &mut info) } == 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)
-        != FILE_ATTRIBUTE_DIRECTORY
-    {
-        return Err(std::io::Error::other("checkout is not a plain directory"));
-    }
-    Ok(super::DirectoryIdentity {
-        volume: u64::from(info.dwVolumeSerialNumber),
-        file: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-        created: directory.metadata()?.created()?,
-    })
-}
-
 pub(crate) struct PrivateLocalListener {
     listener: interprocess::os::windows::named_pipe::PipeListener<
         interprocess::os::windows::named_pipe::pipe_mode::Bytes,

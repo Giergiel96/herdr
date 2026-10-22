@@ -1,19 +1,5 @@
 use std::path::{Path, PathBuf};
 
-pub(crate) fn directory_identity(path: &Path) -> std::io::Result<super::DirectoryIdentity> {
-    use std::os::unix::fs::MetadataExt;
-
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_dir() {
-        return Err(std::io::Error::other("checkout is not a directory"));
-    }
-    Ok(super::DirectoryIdentity {
-        volume: metadata.dev(),
-        file: metadata.ino(),
-        created: metadata.created()?,
-    })
-}
-
 pub(crate) struct ChildPipe(std::fs::File);
 
 impl ChildPipe {
