@@ -527,9 +527,20 @@ fn checkout_gitdir(path: &Path) -> Option<PathBuf> {
 }
 
 fn gitdir_belongs_to_repo(gitdir: &Path, worktrees_dir: &Path) -> bool {
-    canonical_or_original(gitdir)
-        .parent()
-        .is_some_and(|parent| canonical_or_original(parent) == canonical_or_original(worktrees_dir))
+    let gitdir = canonical_or_original(gitdir);
+    let Some(parent) = gitdir.parent() else {
+        return false;
+    };
+    let actual = canonical_or_original(parent);
+    let expected = canonical_or_original(worktrees_dir);
+    // Git may remove worktrees/ itself; the common Git directory still exists.
+    actual.file_name() == expected.file_name()
+        && actual
+            .parent()
+            .zip(expected.parent())
+            .is_some_and(|(actual, expected)| {
+                canonical_or_original(actual) == canonical_or_original(expected)
+            })
 }
 
 fn git_common_worktrees_dir(repo_root: &Path, trust_repository: bool) -> Option<PathBuf> {
@@ -1168,46 +1179,62 @@ prunable stale
 
     #[test]
     fn forced_worktree_remove_recovers_leftover_unregistered_checkout() {
-        let repo = create_committed_repo("worktree-recovery-repo");
-        let checkout = unique_temp_path("worktree-recovery-checkout");
-        let branch = "worktree/recovery";
+        for keep_registered_worktree in [false, true] {
+            let repo = create_committed_repo("worktree-recovery-repo");
+            let checkout = unique_temp_path("worktree-recovery-checkout");
+            let branch = "worktree/recovery";
 
-        let add = build_worktree_add_new_branch_command(&repo, &checkout, branch, "HEAD", false);
-        run_worktree_command(&add).unwrap();
-        let keeper = unique_temp_path("worktree-recovery-keeper");
-        let keep = build_worktree_add_new_branch_command(
-            &repo,
-            &keeper,
-            "worktree/recovery-keeper",
-            "HEAD",
-            false,
-        );
-        run_worktree_command(&keep).unwrap();
-        let remove = build_worktree_remove_command(&repo, &checkout, true, false);
-        run_worktree_command(&remove).unwrap();
-        let stale_admin_dir = git_common_worktrees_dir(&repo, false)
-            .unwrap()
-            .join("stale");
-        let relative_gitdir = PathBuf::from("..")
-            .join(repo.file_name().unwrap())
-            .join(".git/worktrees/stale");
-        for gitdir in [&stale_admin_dir, &relative_gitdir] {
-            std::fs::create_dir_all(&checkout).unwrap();
-            std::fs::write(
-                checkout.join(".git"),
-                format!("gitdir: {}\n", gitdir.display()),
-            )
-            .unwrap();
-            std::fs::write(checkout.join("leftover"), "leftover\n").unwrap();
+            let add =
+                build_worktree_add_new_branch_command(&repo, &checkout, branch, "HEAD", false);
+            run_worktree_command(&add).unwrap();
+            let keeper = unique_temp_path("worktree-recovery-keeper");
+            if keep_registered_worktree {
+                let keep = build_worktree_add_new_branch_command(
+                    &repo,
+                    &keeper,
+                    "worktree/recovery-keeper",
+                    "HEAD",
+                    false,
+                );
+                run_worktree_command(&keep).unwrap();
+            }
+            let remove = build_worktree_remove_command(&repo, &checkout, true, false);
+            run_worktree_command(&remove).unwrap();
+            let stale_admin_dir = git_common_worktrees_dir(&repo, false)
+                .unwrap()
+                .join("stale");
+            let relative_gitdir = PathBuf::from("..")
+                .join(repo.file_name().unwrap())
+                .join(".git/worktrees/stale");
+            for gitdir in [&stale_admin_dir, &relative_gitdir] {
+                std::fs::create_dir_all(&checkout).unwrap();
+                std::fs::write(
+                    checkout.join(".git"),
+                    format!("gitdir: {}\n", gitdir.display()),
+                )
+                .unwrap();
+                std::fs::write(checkout.join("leftover"), "leftover\n").unwrap();
 
-            run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false)
+                run_worktree_remove_command_with_recovery(
+                    &remove,
+                    &canonical_or_original(&repo),
+                    &checkout,
+                    true,
+                    false,
+                )
                 .unwrap();
 
-            assert!(!checkout.exists());
-            assert!(keeper.join(".git").exists());
+                assert!(!checkout.exists());
+                if keep_registered_worktree {
+                    assert!(keeper.join(".git").exists());
+                }
+            }
+            if keep_registered_worktree {
+                run_worktree_command(&build_worktree_remove_command(&repo, &keeper, true, false))
+                    .unwrap();
+            }
+            let _ = std::fs::remove_dir_all(repo);
         }
-        run_worktree_command(&build_worktree_remove_command(&repo, &keeper, true, false)).unwrap();
-        let _ = std::fs::remove_dir_all(repo);
     }
 
     #[test]
