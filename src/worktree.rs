@@ -191,11 +191,20 @@ pub(crate) fn build_worktree_remove_command(
     }
 }
 
+#[cfg(windows)]
+pub(crate) const SUBMODULE_WORKTREE_REMOVE_ERROR: &str =
+    "fatal: working trees containing submodules cannot be moved or removed";
+
 pub(crate) fn is_dirty_worktree_remove_error(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    (lower.contains("contains modified or untracked files")
-        && lower.contains("use --force to delete it"))
-        || lower.contains("working trees containing submodules cannot be moved or removed")
+    lower.contains("contains modified or untracked files")
+        && lower.contains("use --force to delete it")
+}
+
+pub(crate) fn is_submodule_worktree_remove_error(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains("working trees containing submodules cannot be moved or removed")
 }
 
 pub(crate) fn is_not_working_tree_remove_error(message: &str) -> bool {
@@ -234,6 +243,26 @@ pub(crate) fn checkout_has_dirty_files(
     } else {
         Err(format!("git status failed with status {}", output.status))
     }
+}
+
+#[cfg(any(windows, test))]
+pub(crate) fn checkout_has_initialized_submodules(path: &Path, trust_repository: bool) -> bool {
+    if !path.join(".gitmodules").is_file() {
+        return false;
+    }
+    let Ok(output) = repository_git_command(path, trust_repository)
+        .args(["submodule", "status", "--recursive"])
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    // `git submodule status` prefixes uninitialized entries with `-`.
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| matches!(line.as_bytes().first(), Some(b' ' | b'+' | b'U')))
 }
 
 pub(crate) fn build_worktree_add_new_branch_command(
@@ -349,28 +378,60 @@ pub(crate) fn run_worktree_remove_command_with_recovery(
     path: &Path,
     force: bool,
     trust_repository: bool,
+    allow_unregistered_leftover: bool,
 ) -> Result<(), String> {
+    // Capture the checkout identity before Git removes `.git`. A forced removal
+    // can unregister the worktree and then fail to delete the directory, at
+    // which point the checkout no longer proves it belongs to this repository.
+    let checkout_gitdir = force.then(|| checkout_gitdir(path)).flatten();
     match run_worktree_command(command) {
         Ok(()) => Ok(()),
-        Err(err) if force && is_not_working_tree_remove_error(&err) => {
+        Err(err) if force => {
             if worktree_list_contains_path(repo_root, path, trust_repository)? {
                 return Err(err);
             }
-            if path.exists() {
-                if !leftover_worktree_checkout_matches_repo(repo_root, path, trust_repository) {
-                    return Err(err);
-                }
-                std::fs::remove_dir_all(path).map_err(|remove_err| {
-                    format!(
-                        "{err}; failed to remove leftover checkout {}: {remove_err}",
-                        path.display()
-                    )
-                })?;
+            if !path.exists() {
+                return Ok(());
             }
+            let known_checkout = checkout_gitdir
+                .as_deref()
+                .is_some_and(|gitdir| gitdir_belongs_to_repo(gitdir, repo_root, trust_repository))
+                || leftover_worktree_checkout_matches_repo(repo_root, path, trust_repository)
+                || allow_unregistered_leftover;
+            if !known_checkout {
+                return Err(err);
+            }
+            std::fs::remove_dir_all(path).map_err(|remove_err| {
+                format!(
+                    "{err}; failed to remove leftover checkout {}: {remove_err}",
+                    path.display()
+                )
+            })?;
             Ok(())
         }
         Err(err) => Err(err),
     }
+}
+
+fn checkout_gitdir(path: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(path.join(".git")).ok()?;
+    let gitdir = content.trim().strip_prefix("gitdir:")?.trim();
+    if gitdir.is_empty() {
+        return None;
+    }
+    let gitdir = PathBuf::from(gitdir);
+    Some(if gitdir.is_absolute() {
+        gitdir
+    } else {
+        path.join(gitdir)
+    })
+}
+
+fn gitdir_belongs_to_repo(gitdir: &Path, repo_root: &Path, trust_repository: bool) -> bool {
+    let Some(worktrees_dir) = git_common_worktrees_dir(repo_root, trust_repository) else {
+        return false;
+    };
+    canonical_or_original(gitdir).starts_with(canonical_or_original(&worktrees_dir))
 }
 
 fn leftover_worktree_checkout_matches_repo(
@@ -378,23 +439,8 @@ fn leftover_worktree_checkout_matches_repo(
     path: &Path,
     trust_repository: bool,
 ) -> bool {
-    let git_file = path.join(".git");
-    let Ok(content) = std::fs::read_to_string(&git_file) else {
-        return false;
-    };
-    let Some(gitdir) = content.trim().strip_prefix("gitdir:") else {
-        return false;
-    };
-    let gitdir = PathBuf::from(gitdir.trim());
-    let gitdir = if gitdir.is_absolute() {
-        gitdir
-    } else {
-        path.join(gitdir)
-    };
-    let Some(worktrees_dir) = git_common_worktrees_dir(repo_root, trust_repository) else {
-        return false;
-    };
-    canonical_or_original(&gitdir).starts_with(canonical_or_original(&worktrees_dir))
+    checkout_gitdir(path)
+        .is_some_and(|gitdir| gitdir_belongs_to_repo(&gitdir, repo_root, trust_repository))
 }
 
 fn git_common_worktrees_dir(repo_root: &Path, trust_repository: bool) -> Option<PathBuf> {
@@ -871,12 +917,18 @@ prunable stale
         assert!(!is_dirty_worktree_remove_error(
             "fatal: '/w/herdr' contains a locked worktree, use --force only if you know why"
         ));
+        assert!(!is_dirty_worktree_remove_error(
+            "fatal: working trees containing submodules cannot be moved or removed"
+        ));
     }
 
     #[test]
     fn submodule_remove_error_requires_force_confirmation() {
-        assert!(is_dirty_worktree_remove_error(
+        assert!(is_submodule_worktree_remove_error(
             "fatal: working trees containing submodules cannot be moved or removed"
+        ));
+        assert!(!is_submodule_worktree_remove_error(
+            "fatal: '/w/herdr' contains modified or untracked files, use --force to delete it"
         ));
     }
 
@@ -906,6 +958,7 @@ prunable stale
             false,
         );
         run_worktree_command(&add).unwrap();
+        assert!(!checkout_has_initialized_submodules(&checkout, false));
         run_git(
             &checkout,
             &[
@@ -917,20 +970,22 @@ prunable stale
                 "--quiet",
             ],
         );
+        assert!(checkout_has_initialized_submodules(&checkout, false));
         assert!(!checkout_has_dirty_files(&checkout, false).unwrap());
 
         let remove = build_worktree_remove_command(&repo, &checkout, false, false);
         let error = run_worktree_command(&remove).unwrap_err();
-        assert!(is_dirty_worktree_remove_error(&error), "{error}");
+        assert!(is_submodule_worktree_remove_error(&error), "{error}");
         assert!(checkout.join("sub/README.md").exists());
 
         std::fs::write(checkout.join("sub/README.md"), "uncommitted change\n").unwrap();
         let error = run_worktree_command(&remove).unwrap_err();
-        assert!(is_dirty_worktree_remove_error(&error), "{error}");
+        assert!(is_submodule_worktree_remove_error(&error), "{error}");
         assert!(checkout.join("sub/README.md").exists());
 
         let forced = build_worktree_remove_command(&repo, &checkout, true, false);
-        run_worktree_remove_command_with_recovery(&forced, &repo, &checkout, true, false).unwrap();
+        run_worktree_remove_command_with_recovery(&forced, &repo, &checkout, true, false, false)
+            .unwrap();
         assert!(!checkout.exists());
         assert!(!worktree_list_contains_path(&repo, &checkout, false).unwrap());
         assert!(repo.join("sub/README.md").exists());
@@ -1036,7 +1091,31 @@ prunable stale
         .unwrap();
         std::fs::write(checkout.join("leftover"), "leftover\n").unwrap();
 
-        run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false).unwrap();
+        run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false, false)
+            .unwrap();
+
+        assert!(!checkout.exists());
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn forced_worktree_remove_recovery_cleans_managed_unregistered_checkout() {
+        let repo = create_committed_repo("worktree-recovery-managed-repo");
+        let checkout = unique_temp_path("worktree-recovery-managed-checkout");
+        let branch = "worktree/recovery-managed";
+
+        let add = build_worktree_add_new_branch_command(&repo, &checkout, branch, "HEAD", false);
+        run_worktree_command(&add).unwrap();
+        let remove = build_worktree_remove_command(&repo, &checkout, true, false);
+        run_worktree_command(&remove).unwrap();
+        std::fs::create_dir_all(&checkout).unwrap();
+        std::fs::write(checkout.join("leftover"), "leftover\n").unwrap();
+
+        // Git unregistered the worktree and deleted `.git` before it failed to
+        // remove the directory. A confirmed forced removal of the workspace's
+        // checkout may still clean up the leftover.
+        run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false, true)
+            .unwrap();
 
         assert!(!checkout.exists());
         let _ = std::fs::remove_dir_all(repo);
@@ -1055,8 +1134,10 @@ prunable stale
         std::fs::create_dir_all(&checkout).unwrap();
         std::fs::write(checkout.join("unrelated"), "do not delete\n").unwrap();
 
-        let err = run_worktree_remove_command_with_recovery(&remove, &repo, &checkout, true, false)
-            .expect_err("unrelated replacement directory should not be removed");
+        let err = run_worktree_remove_command_with_recovery(
+            &remove, &repo, &checkout, true, false, false,
+        )
+        .expect_err("unrelated replacement directory should not be removed");
 
         assert!(is_not_working_tree_remove_error(&err));
         assert!(checkout.join("unrelated").exists());

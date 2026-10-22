@@ -353,7 +353,7 @@ pub(super) fn render_worktree_remove_overlay(
             inner.x,
             inner.y + 4,
             inner.width,
-            " Dirty or untracked files will be permanently deleted.",
+            " Dirty files and unpushed submodule work will be permanently deleted.",
             Style::default().fg(p.red).bg(p.panel_bg),
         );
     }

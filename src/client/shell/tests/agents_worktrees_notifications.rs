@@ -1423,6 +1423,11 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
     for (code, message, expect_force) in [
         ("dirty_worktree_requires_force", "dirty worktree", true),
         (
+            "submodule_worktree_requires_force",
+            "submodule worktree",
+            true,
+        ),
+        (
             "worktree_remove_failed",
             "fatal: '/repo-feature' is not a working tree",
             true,
