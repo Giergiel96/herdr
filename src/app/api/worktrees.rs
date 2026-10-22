@@ -2694,12 +2694,8 @@ mod tests {
                 respond_to,
             }),
             result: Err("simulated remove failure".into()),
-            leftover_pending: true,
         });
         assert!(pane_updates.is_empty());
-        assert!(app
-            .pending_worktree_remove_leftovers
-            .contains(&crate::worktree::canonical_or_original(&checkout)));
 
         let response = response_rx
             .recv_timeout(std::time::Duration::from_secs(2))
@@ -2785,7 +2781,6 @@ mod tests {
                 respond_to,
             }),
             result: Ok(()),
-            leftover_pending: false,
         });
 
         let response = response_rx
@@ -2856,7 +2851,6 @@ mod tests {
                 respond_to,
             }),
             result: Ok(()),
-            leftover_pending: false,
         });
 
         let response = response_rx

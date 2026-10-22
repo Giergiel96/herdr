@@ -326,12 +326,6 @@ impl App {
 
         let workspace_internal_id = self.state.workspaces[ws_idx].id.clone();
         let checkout_key = crate::worktree::canonical_or_original(&space.checkout_path);
-        // Only a path that an earlier forced attempt left behind may be cleaned
-        // without its `.git` still proving ownership.
-        let allow_unregistered_leftover = params.force
-            && self
-                .pending_worktree_remove_leftovers
-                .contains(&checkout_key);
         if self
             .pending_api_worktree_removes
             .contains_key(&workspace_internal_id)
@@ -399,22 +393,18 @@ impl App {
             forced: params.force,
             api_request: Some(api_request),
             result: Ok(()),
-            leftover_pending: false,
         };
         let spawned = crate::thread_spawn::spawn_named_with(
             "herdr-worktree-remove",
             finished,
             move |mut finished| {
-                let outcome = crate::worktree::run_worktree_remove_command_with_recovery(
+                finished.result = crate::worktree::run_worktree_remove_command_with_recovery(
                     &command,
                     &repo_root,
                     &finished.path,
                     finished.forced,
                     trust_repository,
-                    allow_unregistered_leftover,
                 );
-                finished.result = outcome.result;
-                finished.leftover_pending = outcome.leftover_pending;
                 let _ =
                     event_tx.blocking_send(AppEvent::WorktreeRemoveFinished(Box::new(finished)));
             },
@@ -569,13 +559,6 @@ impl App {
             .remove(&result.workspace_id);
         self.pending_api_worktree_remove_paths
             .remove(&api.checkout_key);
-        if result.leftover_pending {
-            self.pending_worktree_remove_leftovers
-                .insert(api.checkout_key.clone());
-        } else if result.result.is_ok() {
-            self.pending_worktree_remove_leftovers
-                .remove(&api.checkout_key);
-        }
 
         if let Err(message) = result.result {
             let pane_updates = self.restore_shutdown_worktree_panes(

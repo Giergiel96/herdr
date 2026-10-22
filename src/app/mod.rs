@@ -30,7 +30,7 @@ mod theme_sync;
 mod window_title;
 mod worktrees;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::io;
 use std::sync::Arc;
@@ -130,9 +130,6 @@ pub struct App {
     pub(crate) worktree_read_slots: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
     pub(crate) pending_api_worktree_remove_paths: HashMap<std::path::PathBuf, u64>,
-    /// Forced removals that left an unregistered checkout behind. A retry may
-    /// finish deleting that specific leftover, but never a replacement repo.
-    pub(crate) pending_worktree_remove_leftovers: HashSet<std::path::PathBuf>,
     pub(crate) pending_worktree_remove_runtime_exits: HashMap<crate::layout::PaneId, usize>,
     pub(crate) pending_worktree_remove_runtime_restores: HashMap<crate::layout::PaneId, u64>,
     pub(crate) next_api_worktree_operation_id: u64,
@@ -642,7 +639,6 @@ impl App {
             worktree_read_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
             pending_api_worktree_removes: HashMap::new(),
             pending_api_worktree_remove_paths: HashMap::new(),
-            pending_worktree_remove_leftovers: HashSet::new(),
             pending_worktree_remove_runtime_exits: HashMap::new(),
             pending_worktree_remove_runtime_restores: HashMap::new(),
             next_api_worktree_operation_id: 1,

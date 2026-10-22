@@ -5357,7 +5357,6 @@ fn terminal_attach_client_exits_when_worktree_remove_succeeds() {
                     respond_to,
                 }),
                 result: Ok(()),
-                leftover_pending: false,
             }
         )))
     );

@@ -339,33 +339,50 @@ pub(super) fn render_worktree_remove_overlay(
         &format!(" {}", remove.path),
         Style::default().fg(p.subtext0).bg(p.panel_bg),
     );
-    put_text(
-        b,
-        inner.x,
-        inner.y + 3,
-        inner.width,
-        " The branch is not deleted. The Herdr workspace will close.",
-        Style::default().fg(p.text).bg(p.panel_bg),
-    );
-    if remove.force_confirmation {
+    let force = remove.force_confirmation;
+    // Force confirmation needs two warning lines at normal heights. Short
+    // terminals get one line so the status row and buttons keep separate rows.
+    let compact_warning = force && inner.height < 7;
+    if !compact_warning {
         put_text(
             b,
             inner.x,
-            inner.y + 4,
+            inner.y + 3,
             inner.width,
-            " Uncommitted or unpushed work in this checkout",
-            Style::default().fg(p.red).bg(p.panel_bg),
+            " The branch is not deleted. The Herdr workspace will close.",
+            Style::default().fg(p.text).bg(p.panel_bg),
         );
+    }
+    let warning_y = if compact_warning {
+        inner.y + 3
+    } else {
+        inner.y + 4
+    };
+    let warning_lines: &[&str] = if !force {
+        &[]
+    } else if inner.height >= 8 {
+        &[
+            " Uncommitted or unpushed work in this checkout",
+            " or its submodules will be permanently deleted.",
+        ]
+    } else {
+        &[" Uncommitted or unpushed work will be deleted."]
+    };
+    for (offset, line) in warning_lines.iter().enumerate() {
         put_text(
             b,
             inner.x,
-            inner.y + 5,
+            warning_y + offset as u16,
             inner.width,
-            " or its submodules will be permanently deleted.",
+            line,
             Style::default().fg(p.red).bg(p.panel_bg),
         );
     }
-    let status_y = inner.y + if remove.force_confirmation { 6 } else { 5 };
+    let status_y = if force {
+        warning_y + warning_lines.len() as u16
+    } else {
+        inner.y + 5
+    };
     if remove.removing {
         put_text(
             b,
@@ -385,7 +402,8 @@ pub(super) fn render_worktree_remove_overlay(
             Style::default().fg(p.red).bg(p.panel_bg),
         );
     }
-    let buttons = row(inner, &[18, 12], 2, 7);
+    let buttons_off = if force { status_y - inner.y + 1 } else { 7 };
+    let buttons = row(inner, &[18, 12], 2, buttons_off);
     let [primary, cancel] = buttons.as_slice() else {
         return None;
     };
