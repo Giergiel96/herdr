@@ -113,6 +113,32 @@ async fn appearance_deadline_bounds_missing_or_inconsistent_background() {
 }
 
 #[tokio::test]
+async fn pane_opened_without_background_during_appearance_hold_answers_and_receives_release() {
+    for (outgoing, incoming) in [
+        (HostAppearance::Dark, HostAppearance::Light),
+        (HostAppearance::Light, HostAppearance::Dark),
+    ] {
+        let mut app = app();
+        app.set_host_terminal_appearance_state(Some(outgoing), true);
+        app.set_host_terminal_appearance_state(Some(incoming), true);
+        let (id, mut rx) = child(&mut app);
+        assert_eq!(
+            query(&app, &id, b"\x1b[?996n"),
+            [Bytes::from_static(outgoing.color_scheme_report())],
+            "a pane opened during the hold must answer with the known outgoing appearance"
+        );
+        assert!(rx.try_recv().is_err());
+        let deadline = app.pending_host_appearance_deadline.unwrap();
+        assert!(app.release_host_appearance_if_ready(deadline));
+        assert_eq!(rx.try_recv().unwrap(), incoming.color_scheme_report());
+        assert_eq!(
+            query(&app, &id, b"\x1b[?996n"),
+            [Bytes::from_static(incoming.color_scheme_report())]
+        );
+    }
+}
+
+#[tokio::test]
 async fn appearance_coalesces_without_extending_deadline() {
     let mut app = app();
     background(&mut app, DARK);

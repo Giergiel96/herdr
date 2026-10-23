@@ -141,6 +141,7 @@ pub struct App {
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) pending_host_appearance_deadline: Option<Instant>,
+    pane_host_appearance: Option<crate::terminal_theme::HostAppearance>,
     startup_per_agent_delay: Duration,
     next_agent_resume_at: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
@@ -654,6 +655,7 @@ impl App {
             agent_metadata_deadline: None,
             pending_agent_resume_deadline: None,
             pending_host_appearance_deadline: None,
+            pane_host_appearance: None,
             startup_per_agent_delay: Duration::from_millis(
                 config.session.startup_per_agent_delay_ms.into(),
             ),

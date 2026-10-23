@@ -71,6 +71,7 @@ impl App {
                 .host_terminal_theme
                 .background
                 .map(|color| color.inferred_appearance())
+                .or(self.pane_host_appearance)
         } else {
             self.state.host_terminal_appearance
         }
@@ -110,7 +111,8 @@ impl App {
         true
     }
 
-    fn apply_host_terminal_appearance_to_panes(&self) {
+    fn apply_host_terminal_appearance_to_panes(&mut self) {
+        self.pane_host_appearance = self.state.host_terminal_appearance;
         for runtime in self.terminal_runtimes.values() {
             runtime.apply_host_terminal_appearance(self.state.host_terminal_appearance);
         }
