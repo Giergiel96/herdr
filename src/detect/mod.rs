@@ -248,6 +248,9 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         let name = name
             .strip_suffix("-wrapped")
             .or_else(|| name.strip_suffix("-unwrapped"))?;
+        if name.starts_with('.') {
+            return None;
+        }
         lookup_agent(&name.to_lowercase())
     })
 }
@@ -396,8 +399,12 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
         }
     }
 
-    if parse_agent_label(effective).is_some() {
-        return effective.to_string();
+    if let Some(agent) = identify_agent(effective) {
+        return if parse_agent_label(effective).is_some() {
+            effective.to_string()
+        } else {
+            agent_label(agent).to_string()
+        };
     }
 
     if let Some(runtime) = process.argv.as_deref().and_then(|argv| argv.first()) {
@@ -1677,6 +1684,8 @@ mod tests {
             ".claude-unwrappedx",
             ".unknown-wrapped",
             "..claude-wrapped",
+            "..cline-wrapped",
+            "..cline-unwrapped",
             ".claude-wrapped-unwrapped",
             ".-wrapped",
         ] {
@@ -1684,6 +1693,22 @@ mod tests {
             assert_eq!(
                 cmdline_argv0_agent_name(&format!("/nix/store/example/bin/{name}")),
                 None,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn identify_nix_wrapper_process_name_takes_precedence_over_argv() {
+        for suffix in ["wrapped", "unwrapped"] {
+            let name = format!(".claude-{suffix}");
+            let job = crate::platform::ForegroundJob {
+                process_group_id: 123,
+                processes: vec![foreground_process(123, &name, &["codex"])],
+            };
+            assert_eq!(
+                identify_agent_in_job(&job),
+                Some((Agent::Claude, "claude".to_string())),
                 "{name}"
             );
         }
