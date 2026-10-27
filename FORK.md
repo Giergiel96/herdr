@@ -38,11 +38,18 @@ conflicts in those files resolve with `git rm`. Never open a pull request agains
 `herdrdev/herdr` from this branch: the upstream gate closes PRs from accounts outside
 `.github/APPROVED_CONTRIBUTORS` (see #5605).
 
+## Branches
+
+- `master`: untouched mirror of `upstream/master`. Only ever fast-forward it.
+- `develop`: the fork's line, default branch. Feature branches merge here through pull requests on
+  the fork (never against `herdrdev/herdr`).
+
 ## Rebasing on upstream
 
 ```sh
 git fetch upstream
-git rebase upstream/master
+git checkout master && git merge --ff-only upstream/master && git push origin master
+git checkout develop && git rebase master      # or `git merge master` to keep history
 ```
 
 Expected conflict spots: `src/client/shell/sidebar.rs` (grouping and render loop),
