@@ -382,8 +382,8 @@ fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
     assert!(text.contains("repo-reviewer"));
     assert!(text.contains("├ mateusz-coder"), "subagent rows: {text}");
     assert!(
-        text.contains("\u{ec82} haiku 5.5"),
-        "subagent model with vendor glyph: {text}"
+        text.contains("▫ haiku 5.5"),
+        "subagent model with tier glyph: {text}"
     );
     assert!(text.contains("└ reviewer"), "last subagent: {text}");
     assert!(
