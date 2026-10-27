@@ -1,5 +1,10 @@
 # herdr
 
+> **这是个人分支，不是 herdr 官方项目。** 本仓库是 Giergiel96 基于
+> [herdrdev/herdr](https://github.com/herdrdev/herdr) 的个人分支，仅包含针对
+> 个人工作流的侧边栏与标签栏修改，不由 herdr 维护者维护、支持或发布。请从
+> [herdr.dev](https://herdr.dev) 安装 herdr，并到上游仓库反馈问题。修改内容与
+> 同步方式见 [FORK.md](FORK.md)；`develop` 包含修改，`master` 镜像上游。
 
 <p align="center">
   <img src="assets/logo.png" alt="herdr" width="100" />

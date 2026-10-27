@@ -1,5 +1,12 @@
 # herdr
 
+> **Personal fork, not the herdr project.** This is Giergiel96's fork of
+> [herdrdev/herdr](https://github.com/herdrdev/herdr) with sidebar and tab-bar
+> changes for one person's workflow. It is not maintained, supported or released
+> by the herdr maintainers. Install herdr from [herdr.dev](https://herdr.dev);
+> report bugs and ideas upstream, not here. What this fork changes, and how it is
+> kept in sync with upstream, is in [FORK.md](FORK.md). `develop` carries the
+> changes; `master` mirrors upstream.
 
 <p align="center">
   <img src="assets/logo.png" alt="herdr" width="100" />
