@@ -15,6 +15,7 @@ Upstream base: `2713feb5` (fix: install opencode and kilo integrations under XDG
 | `WorkspaceEntry` gains `group_header` / `continues_group` / `collapsed_group` and `plain()` | `src/client/shell/state.rs`, `workspace_navigation.rs` | Header line is counted in row heights; members pack without `row_gap`; a collapsed group is its header line only (accent color, left `▾`/`▸` glyph, rolled-up state icon). |
 | `group_by` threaded through every `workspace_entries` caller | `endpoint_sidebar.rs`, `endpoint_navigation.rs`, `mobile.rs`, `mouse.rs`, `state.rs` | Multi-machine sidebar renders the same header. Mobile list stays flat. |
 | Tests | `src/client/shell/tests/agents_worktrees_notifications.rs`, `src/config/sidebar.rs` | `cwd_grouping_renders_a_header_over_equal_members_and_collapses_them`, `parses_space_group_by_and_rejects_unknown_values`. |
+| Drop the local server's generic "unknown keys" banner when the client parsed the same config cleanly (version skew, not a config error) | `src/client/shell/config.rs`, `src/client/shell/state.rs` | `merged_config_diagnostic` takes `shared_config_file`; only the exact unknown-keys text is filtered, only for the local endpoint. |
 | Docs | `docs/next/website/src/data/config-reference.json`, `docs/next/website/src/content/docs/configuration.mdx` | `scripts/config_reference_check.py` must stay green. |
 
 Design constraints worth remembering:
