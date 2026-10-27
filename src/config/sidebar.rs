@@ -504,6 +504,30 @@ impl Default for SpacesSidebarConfig {
     }
 }
 
+/// A one-line bar in place of the tab row: the focused agent on the left,
+/// its metadata tokens on the right.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AgentBarConfig {
+    pub enabled: bool,
+    pub left: Vec<AgentSidebarToken>,
+    pub right: Vec<AgentSidebarToken>,
+}
+
+impl Default for AgentBarConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            left: vec![
+                AgentSidebarToken::StateIcon,
+                AgentSidebarToken::Workspace,
+                AgentSidebarToken::Agent,
+            ],
+            right: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SidebarConfig {
@@ -542,6 +566,25 @@ mod tests {
         assert_eq!(config.spaces.row_gap, 0);
         assert_eq!(config.spaces.group_by, SpaceGroupBy::Worktree);
         assert_eq!(config.spaces.mode, SpacePanelMode::Spaces);
+    }
+
+    #[test]
+    fn parses_agent_bar_tokens() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[ui.agent_bar]
+enabled = true
+left = ["state_icon", "workspace"]
+right = [{ token = "$ctx_ok", dim = true }, "$model"]
+"#,
+        )
+        .expect("config parses");
+        let bar = &config.ui.agent_bar;
+        assert!(bar.enabled);
+        assert_eq!(bar.left.len(), 2);
+        assert_eq!(bar.right.len(), 2);
+        assert!(!AgentBarConfig::default().enabled);
+        assert_eq!(AgentBarConfig::default().left.len(), 3);
     }
 
     #[test]

@@ -35,8 +35,6 @@ pub(super) struct AgentTreeEntry {
     pub(super) started_unix: Option<u64>,
     pub(super) collapsed: bool,
     pub(super) last: bool,
-    /// The row follows another member of the same group: no row gap before it.
-    pub(super) continues_group: bool,
 }
 
 struct Member<'a> {
@@ -127,13 +125,29 @@ pub(super) fn parse_subagents(value: &str) -> Vec<(String, Option<u64>)> {
         .collect()
 }
 
+/// Subagents from the `subagents` token plus its `subagents_2`.. overflow
+/// chunks, which the reporter uses because token values are capped at 80
+/// characters.
 fn subagents(agent: &ClientShellAgent) -> Vec<(String, Option<u64>)> {
-    agent
+    let mut chunks = agent
         .tokens
         .iter()
-        .find(|(name, _)| name == SUBAGENTS_TOKEN)
-        .map(|(_, value)| parse_subagents(value))
-        .unwrap_or_default()
+        .filter_map(|(name, value)| {
+            if name == SUBAGENTS_TOKEN {
+                return Some((1, value));
+            }
+            name.strip_prefix(SUBAGENTS_TOKEN)?
+                .strip_prefix('_')?
+                .parse::<usize>()
+                .ok()
+                .map(|index| (index, value))
+        })
+        .collect::<Vec<_>>();
+    chunks.sort_by_key(|(index, _)| *index);
+    chunks
+        .into_iter()
+        .flat_map(|(_, value)| parse_subagents(value))
+        .collect()
 }
 
 fn member_status(member: &Member<'_>) -> AgentStatus {
@@ -186,13 +200,12 @@ pub(super) fn entries(
                 started_unix: None,
                 collapsed,
                 last: false,
-                continues_group: false,
             });
             if collapsed {
                 continue;
             }
         }
-        for (position, member) in group.iter().enumerate() {
+        for member in group.iter() {
             let workspace = &snapshot.workspaces[member.workspace_index];
             let children = member.agent.map(subagents).unwrap_or_default();
             let subagent_key = member
@@ -217,7 +230,6 @@ pub(super) fn entries(
                 started_unix: None,
                 collapsed: children_collapsed,
                 last: false,
-                continues_group: grouped && position > 0,
             });
             if children_collapsed {
                 continue;
@@ -235,7 +247,6 @@ pub(super) fn entries(
                     started_unix,
                     collapsed: false,
                     last: child_index + 1 == total,
-                    continues_group: true,
                 });
             }
         }
@@ -297,7 +308,7 @@ fn entry_height(entry: &AgentTreeEntry, rows: usize) -> u16 {
 }
 
 fn gap_before(next: &AgentTreeEntry, row_gap: u16) -> u16 {
-    u16::from(!next.continues_group && next.kind != AgentTreeKind::Subagent) * row_gap
+    u16::from(next.kind != AgentTreeKind::Subagent) * row_gap
 }
 
 fn render_header(
@@ -390,6 +401,20 @@ fn render_subagent(
             line.y,
             &elapsed,
             Style::default().fg(palette.overlay1),
+        );
+    }
+}
+
+/// Accent bar along the left edge of the focused agent's rows.
+fn render_focus_bar(buffer: &mut Buffer, rect: Rect, palette: &Palette) {
+    for y in rect.y..rect.bottom() {
+        put_text(
+            buffer,
+            rect.x,
+            y,
+            1,
+            "▎",
+            Style::default().fg(palette.accent),
         );
     }
 }
@@ -554,6 +579,9 @@ pub(super) fn render_agent_tree(
                             .add_modifier(Modifier::DIM),
                     );
                 }
+                if focused || selected {
+                    render_focus_bar(buffer, rect, palette);
+                }
                 render_subagent_toggle(buffer, rect, entry, palette)
             }
             AgentTreeKind::Subagent => {
@@ -618,6 +646,37 @@ mod tests {
             ]
         );
         assert!(parse_subagents("").is_empty());
+    }
+
+    #[test]
+    fn subagent_chunks_are_joined_in_order() {
+        let agent = ClientShellAgent {
+            pane_id: "p".into(),
+            workspace_id: "w".into(),
+            tab_id: "t".into(),
+            name: None,
+            display_agent: None,
+            agent: None,
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Working,
+            state_change_seq: 0,
+            state_labels: Vec::new(),
+            tokens: vec![
+                ("subagents_2".into(), "c@3".into()),
+                ("subagents".into(), "a@1;b@2".into()),
+                ("other".into(), "x".into()),
+            ],
+            focused: false,
+        };
+        assert_eq!(
+            subagents(&agent)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
     }
 
     #[test]

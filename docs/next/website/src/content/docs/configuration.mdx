@@ -359,6 +359,19 @@ status_indicators = "symbols"
 
 The symbols are static, so this option does not enable spinner animation.
 
+### Agent bar
+
+Replace the desktop tab row with a one-line agent bar:
+
+```toml
+[ui.agent_bar]
+enabled = true
+left = ["state_icon", "workspace", "agent"]
+right = [{ token = "$ctx_ok", dim = true }, { token = "$h5_ok", fg = "#56b6c2" }, "$model"]
+```
+
+The left side describes the focused agent, or the focused workspace when it has no agent, using the Agent row tokens and inline style tables documented below. The right side is right-aligned and resolves `$name` metadata tokens from the focused agent's pane merged over its workspace. The bar always shows while enabled; tabs remain reachable through the keyboard and the tab bar's own right-side entries are not drawn.
+
 ### Sidebar row layouts
 
 The expanded desktop sidebar renders each inner array in `rows` as one line. These are the complete default layouts:

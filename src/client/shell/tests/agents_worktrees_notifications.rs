@@ -443,6 +443,61 @@ fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
 }
 
 #[test]
+fn agent_bar_replaces_the_tab_row_with_the_focused_agent_and_its_tokens() {
+    let mut raw = Config::default();
+    raw.ui.agent_bar.enabled = true;
+    raw.ui.agent_bar.right = vec![
+        crate::config::AgentSidebarToken::Custom("ctx_ok".into()),
+        crate::config::AgentSidebarToken::Custom("model".into()),
+    ];
+    let config = ClientShellConfig::from_config(&raw);
+    let mut state = ClientShellState::new(config);
+    let mut snapshot = snapshot();
+    snapshot.workspaces[0]
+        .tokens
+        .push(("ctx_ok".into(), "ctx ▰▱▱▱▱ 12%".into()));
+    snapshot.agents.push(ClientShellAgent {
+        pane_id: "pane_1".into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: None,
+        display_agent: Some("claude".into()),
+        agent: Some("claude".into()),
+        title: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: AgentStatus::Working,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens: vec![("model".into(), "✦ Opus 5.5".into())],
+        focused: true,
+    });
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 20).expect("composed frame");
+    let rows = frame_rows(&frame);
+    let bar = &rows[0];
+    assert!(
+        bar.contains("client-shell"),
+        "left side names the agent: {bar}"
+    );
+    assert!(
+        bar.contains("claude"),
+        "left side shows the agent label: {bar}"
+    );
+    assert!(
+        bar.contains("ctx ▰▱▱▱▱ 12%"),
+        "workspace token on the right: {bar}"
+    );
+    assert!(bar.contains("✦ Opus 5.5"), "pane token on the right: {bar}");
+    assert!(!bar.contains(" + "), "no new-tab button: {bar}");
+    assert!(state.hits.tabs.is_empty(), "no tab hits in agent bar mode");
+    let model_x = bar.find("✦ Opus").expect("model position");
+    let name_x = bar.find("client-shell").expect("name position");
+    assert!(model_x > name_x, "tokens are right-aligned after the name");
+}
+
+#[test]
 fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
     for linked_child in [false, true] {
         let mut projected = snapshot();

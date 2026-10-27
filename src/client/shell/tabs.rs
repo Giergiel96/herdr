@@ -1,4 +1,9 @@
 use super::*;
+use ratatui::{
+    text::Line,
+    widgets::{Paragraph, Widget},
+};
+use std::collections::HashMap;
 
 const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
 const MIN_TAB_STRIP_WIDTH: u16 =
@@ -16,6 +21,10 @@ pub(crate) fn render_tab_bar(
 ) {
     let palette = &config.palette;
     buffer.set_style(area, Style::default().bg(palette.panel_bg));
+    if config.agent_bar.enabled {
+        render_agent_bar(buffer, area, snapshot, config);
+        return;
+    }
     let tabs = snapshot
         .tabs
         .iter()
@@ -376,6 +385,125 @@ fn tab_label(tab: &ClientShellTab) -> String {
         format!("{} Z", tab.label)
     } else {
         tab.label.clone()
+    }
+}
+
+/// The agent bar: focused agent on the left, its metadata tokens on the right.
+/// Tokens come from the agent pane merged over its workspace, so usage
+/// reported on either level is available.
+fn render_agent_bar(
+    buffer: &mut Buffer,
+    area: Rect,
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+) {
+    if area.height == 0 || area.width < 4 {
+        return;
+    }
+    let palette = &config.palette;
+    let workspace = snapshot
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.focused)
+        .or_else(|| snapshot.workspaces.first());
+    let Some(workspace) = workspace else {
+        return;
+    };
+    let agent = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.focused)
+        .or_else(|| {
+            snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.workspace_id == workspace.workspace_id)
+        });
+    let mut tokens = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
+    if let Some(agent) = agent {
+        tokens.extend(agent.tokens.iter().cloned());
+    }
+    let status = agent.map_or(workspace.agent_status, |agent| agent.agent_status);
+    let agent_label = agent.and_then(|agent| {
+        agent
+            .display_agent
+            .as_deref()
+            .or(agent.name.as_deref())
+            .or(agent.agent.as_deref())
+            .or(agent.title.as_deref())
+    });
+    let tab = snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.focused && tab.workspace_id == workspace.workspace_id);
+    let tab_count = snapshot
+        .tabs
+        .iter()
+        .filter(|tab| tab.workspace_id == workspace.workspace_id)
+        .count();
+    let context = |rows: Vec<crate::config::AgentSidebarToken>| {
+        let layout = crate::config::AgentsSidebarConfig {
+            rows: vec![rows],
+            ..crate::config::AgentsSidebarConfig::default()
+        };
+        crate::ui::sidebar_agent_rows(
+            &layout,
+            crate::ui::AgentTokenContext {
+                machine: None,
+                workspace: &workspace.label,
+                tab: tab
+                    .filter(|tab| tab_count > 1 || tab.custom_label)
+                    .map(|tab| tab.label.as_str()),
+                pane: agent.and_then(|agent| agent.title.as_deref()),
+                agent_label,
+                terminal_title: agent.and_then(|agent| agent.terminal_title.as_deref()),
+                terminal_title_stripped: agent
+                    .and_then(|agent| agent.terminal_title_stripped.as_deref()),
+                canonical_agent: agent
+                    .and_then(|agent| agent.agent.as_deref())
+                    .and_then(crate::detect::parse_agent_label),
+                tokens: &tokens,
+            },
+            super::agent_sidebar::sidebar_status_text(status),
+        )
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+    };
+    let spans = |resolved: &[crate::ui::ResolvedToken], max_width: u16| {
+        crate::ui::resolved_token_spans(
+            resolved,
+            (
+                status_icon(status, config.status_indicators),
+                Style::default().fg(status_color(status, palette)),
+            ),
+            Style::default().fg(status_color(status, palette)),
+            Style::default()
+                .fg(palette.text)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(palette.subtext0),
+            Style::default().fg(palette.overlay1),
+            palette,
+            usize::from(max_width),
+        )
+    };
+    let right_tokens = context(config.agent_bar.right.clone());
+    let right_spans = spans(&right_tokens, area.width.saturating_sub(2) / 2);
+    let right_width = right_spans
+        .iter()
+        .map(|span| display_width(&span.content))
+        .fold(0u16, u16::saturating_add);
+    let right_x = area.right().saturating_sub(right_width.saturating_add(1));
+    let left_tokens = context(config.agent_bar.left.clone());
+    let left_max = right_x.saturating_sub(area.x.saturating_add(2));
+    let left_spans = spans(&left_tokens, left_max);
+    Paragraph::new(Line::from(left_spans)).render(
+        Rect::new(area.x.saturating_add(1), area.y, left_max, 1),
+        buffer,
+    );
+    if right_width > 0 {
+        Paragraph::new(Line::from(right_spans))
+            .render(Rect::new(right_x, area.y, right_width, 1), buffer);
     }
 }
 

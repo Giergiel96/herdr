@@ -4,9 +4,9 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
-    SoundConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
-    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
+    ActionKeybinds, AgentBarConfig, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds,
+    SidebarConfig, SoundConfig, TabBarRightEntryConfig, ThemeConfig,
+    DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -991,6 +991,9 @@ pub struct UiConfig {
     /// Format for the outer terminal window title. Empty leaves the title alone.
     /// Default: "{hostname}: {workspace}".
     pub window_title: String,
+    /// Replace the tab row with a one-line agent bar: the focused agent on the left, its
+    /// metadata tokens on the right. Disabled by default.
+    pub agent_bar: AgentBarConfig,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
@@ -1223,6 +1226,7 @@ impl Default for UiConfig {
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
+            agent_bar: AgentBarConfig::default(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
