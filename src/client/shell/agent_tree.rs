@@ -483,22 +483,19 @@ fn render_focus_bar(buffer: &mut Buffer, rect: Rect, palette: &Palette) {
     }
 }
 
-/// Nerd Font vendor logo for a model name: Claude (`cod-claude`), OpenAI
-/// (`cod-openai`), otherwise a neutral spark.
+/// A small glyph per Claude model tier, light enough to sit before the name.
 pub(super) fn vendor_glyph(model: &str) -> &'static str {
     let model = model.to_ascii_lowercase();
-    if ["claude", "opus", "sonnet", "haiku", "fable", "mythos"]
-        .iter()
-        .any(|family| model.contains(family))
-    {
-        "\u{ec82}"
-    } else if ["gpt", "codex", "o1", "o3", "o4"]
-        .iter()
-        .any(|family| model.contains(family))
-    {
-        "\u{ec81}"
+    if model.contains("haiku") {
+        "▫"
+    } else if model.contains("sonnet") {
+        "◇"
+    } else if model.contains("opus") {
+        "◈"
+    } else if model.contains("fable") || model.contains("mythos") {
+        "✧"
     } else {
-        "✦"
+        "·"
     }
 }
 
@@ -774,10 +771,11 @@ mod tests {
 
     #[test]
     fn vendor_glyphs_follow_the_model_family() {
-        assert_eq!(vendor_glyph("haiku 5.5"), "\u{ec82}");
-        assert_eq!(vendor_glyph("Opus 5.5"), "\u{ec82}");
-        assert_eq!(vendor_glyph("gpt-5"), "\u{ec81}");
-        assert_eq!(vendor_glyph("mystery"), "✦");
+        assert_eq!(vendor_glyph("haiku 5.5"), "▫");
+        assert_eq!(vendor_glyph("Sonnet 5.5"), "◇");
+        assert_eq!(vendor_glyph("Opus 5.5"), "◈");
+        assert_eq!(vendor_glyph("fable 5.1"), "✧");
+        assert_eq!(vendor_glyph("mystery"), "·");
     }
 
     #[test]
