@@ -175,6 +175,7 @@ pub(super) struct ClientPaneMouseGesture {
 pub(super) struct ClientWorkspacePress {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
+    pub(super) pane_id: Option<String>,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -235,6 +236,8 @@ pub(super) struct WorkspaceHit {
     pub(super) rect: Rect,
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
+    /// Agent-tree rows focus this pane instead of only the workspace.
+    pub(super) pane_id: Option<String>,
     pub(super) indented: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
 }
@@ -990,6 +993,29 @@ pub(super) struct WorkspaceEntry {
     pub(super) index: usize,
     pub(super) indented: bool,
     pub(super) last_child: bool,
+    /// First member of a cwd group: a group header line precedes its rows.
+    pub(super) group_header: bool,
+    /// Later member of a cwd group: packed to the previous entry without a row gap.
+    pub(super) continues_group: bool,
+    /// Collapsed cwd group: only the header line renders, no member rows.
+    pub(super) collapsed_group: bool,
+}
+
+impl WorkspaceEntry {
+    pub(super) fn plain(index: usize) -> Self {
+        Self {
+            index,
+            indented: false,
+            last_child: false,
+            group_header: false,
+            continues_group: false,
+            collapsed_group: false,
+        }
+    }
+
+    pub(super) fn header_rows(&self) -> u16 {
+        u16::from(self.group_header)
+    }
 }
 
 impl ClientShellState {
@@ -1188,13 +1214,24 @@ impl ClientShellState {
         snapshot: &ClientShellSnapshot,
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
+        let group_by = self.config.spaces.group_by;
+        if self.config.spaces.mode == crate::config::SpacePanelMode::Agents
+            && !self.mobile_layout_active()
+        {
+            return super::agent_tree::navigation_entries(
+                snapshot,
+                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+                    .unwrap_or(&empty_collapsed_groups),
+            );
+        }
         if self.mobile_layout_active() {
-            render::workspace_entries(snapshot, &empty_collapsed_groups)
+            render::workspace_entries(snapshot, &empty_collapsed_groups, group_by)
         } else {
             render::workspace_entries(
                 snapshot,
                 self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
                     .unwrap_or(&empty_collapsed_groups),
+                group_by,
             )
         }
     }
@@ -1364,6 +1401,7 @@ impl ClientShellState {
         self.config_diagnostic = super::config::merged_config_diagnostic(
             self.local_config_diagnostic.as_deref(),
             snapshot.config_diagnostic.as_deref(),
+            self.active_endpoint_id.is_local(),
         );
         let boot_changed = endpoint_boot_changed
             || self

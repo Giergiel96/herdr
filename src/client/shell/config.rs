@@ -1,9 +1,23 @@
 use super::*;
 
+/// The server's generic warning for keys it does not recognize in config.toml.
+const UNKNOWN_KEYS_DIAGNOSTIC: &str = "config.toml has unknown keys; herdr config check";
+
+/// Merge the client's own config diagnostic with the endpoint's.
+///
+/// When both read the same config file (`shared_config_file`, a local
+/// endpoint) and the client parsed it cleanly, the endpoint's unknown-keys
+/// warning only means the server binary is older than the client and does not
+/// know a key the client accepts. That is version skew, not a config problem,
+/// so it is dropped.
 pub(super) fn merged_config_diagnostic(
     local: Option<&str>,
     endpoint: Option<&str>,
+    shared_config_file: bool,
 ) -> Option<String> {
+    let endpoint = endpoint.filter(|endpoint| {
+        !(shared_config_file && local.is_none() && *endpoint == UNKNOWN_KEYS_DIAGNOSTIC)
+    });
     match (local, endpoint) {
         (Some(local), Some(endpoint)) if local == endpoint => {
             Some(format!("client + endpoint: {local}"))
@@ -23,6 +37,7 @@ impl ClientShellState {
             self.snapshot
                 .as_deref()
                 .and_then(|snapshot| snapshot.config_diagnostic.as_deref()),
+            self.active_endpoint_id.is_local(),
         );
     }
 
@@ -561,6 +576,33 @@ mod tests {
         assert_eq!(
             shell.keybinds.prefix,
             vec![(KeyCode::Char('x'), KeyModifiers::CONTROL)]
+        );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::{merged_config_diagnostic, UNKNOWN_KEYS_DIAGNOSTIC};
+
+    #[test]
+    fn older_local_server_unknown_keys_warning_is_dropped_when_client_parses_cleanly() {
+        assert_eq!(
+            merged_config_diagnostic(None, Some(UNKNOWN_KEYS_DIAGNOSTIC), true),
+            None
+        );
+        assert_eq!(
+            merged_config_diagnostic(None, Some(UNKNOWN_KEYS_DIAGNOSTIC), false),
+            Some(UNKNOWN_KEYS_DIAGNOSTIC.to_owned())
+        );
+        assert_eq!(
+            merged_config_diagnostic(Some("client: bad"), Some(UNKNOWN_KEYS_DIAGNOSTIC), true),
+            Some(format!(
+                "client: client: bad\nendpoint: {UNKNOWN_KEYS_DIAGNOSTIC}"
+            ))
+        );
+        assert_eq!(
+            merged_config_diagnostic(None, Some("config.toml: invalid value"), true),
+            Some("config.toml: invalid value".to_owned())
         );
     }
 }

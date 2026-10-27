@@ -455,12 +455,39 @@ impl Default for AgentsSidebarConfig {
     }
 }
 
+/// How the expanded Space sidebar groups workspaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpaceGroupBy {
+    /// Herdr-managed worktree checkouts nest under their primary repo workspace.
+    #[default]
+    Worktree,
+    /// Workspaces that share a working directory or repo sit under one group
+    /// header as equal members.
+    Cwd,
+}
+
+/// What the upper sidebar panel lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpacePanelMode {
+    /// One entry per workspace.
+    #[default]
+    Spaces,
+    /// One entry per agent, grouped by the agent pane's working directory,
+    /// with reported subagents nested underneath. Workspaces without an agent
+    /// appear as dimmed shell rows.
+    Agents,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SpacesSidebarConfig {
     #[serde(deserialize_with = "deserialize_sidebar_rows")]
     pub rows: SpaceSidebarRows,
     pub row_gap: u16,
+    pub group_by: SpaceGroupBy,
+    pub mode: SpacePanelMode,
 }
 
 impl Default for SpacesSidebarConfig {
@@ -471,6 +498,8 @@ impl Default for SpacesSidebarConfig {
                 vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
             ],
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
+            group_by: SpaceGroupBy::Worktree,
+            mode: SpacePanelMode::Spaces,
         }
     }
 }
@@ -511,6 +540,41 @@ mod tests {
             ]
         );
         assert_eq!(config.spaces.row_gap, 0);
+        assert_eq!(config.spaces.group_by, SpaceGroupBy::Worktree);
+        assert_eq!(config.spaces.mode, SpacePanelMode::Spaces);
+    }
+
+    #[test]
+    fn parses_space_panel_mode() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[ui.sidebar.spaces]
+mode = "agents"
+"#,
+        )
+        .expect("config parses");
+        assert_eq!(config.ui.sidebar.spaces.mode, SpacePanelMode::Agents);
+    }
+
+    #[test]
+    fn parses_space_group_by_and_rejects_unknown_values() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[ui.sidebar.spaces]
+group_by = "cwd"
+"#,
+        )
+        .expect("config parses");
+        assert_eq!(config.ui.sidebar.spaces.group_by, SpaceGroupBy::Cwd);
+
+        let error = toml::from_str::<crate::config::Config>(
+            r#"
+[ui.sidebar.spaces]
+group_by = "repo"
+"#,
+        )
+        .expect_err("unknown group_by is rejected");
+        assert!(error.to_string().contains("group_by") || error.to_string().contains("repo"));
     }
 
     #[test]

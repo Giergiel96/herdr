@@ -190,6 +190,7 @@ pub(super) fn render_collapsed(
                 rect,
                 endpoint_id: endpoint.endpoint_id.clone(),
                 workspace_id: workspace.workspace_id.clone(),
+                pane_id: None,
                 indented: false,
                 group_toggle: None,
             });
@@ -283,12 +284,16 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
-                    .into_iter()
-                    .map(|entry| Row::Workspace {
-                        endpoint: endpoint_index,
-                        entry,
-                    }),
+                super::sidebar::workspace_entries(
+                    snapshot,
+                    collapsed_groups,
+                    config.spaces.group_by,
+                )
+                .into_iter()
+                .map(|entry| Row::Workspace {
+                    endpoint: endpoint_index,
+                    entry,
+                }),
             );
         }
     }
@@ -314,21 +319,21 @@ pub(super) fn render_expanded(
                     .as_deref()
                     .and_then(|snapshot| {
                         let workspace = snapshot.workspaces.get(entry.index)?;
-                        Some(
+                        Some(super::sidebar::entry_height(
                             super::sidebar::workspace_rows(
                                 workspace,
                                 super::sidebar::displayed_workspace_status(
                                     snapshot,
                                     workspace,
                                     collapsed_groups,
+                                    config.spaces.group_by,
                                 ),
                                 entry.indented,
                                 &config.spaces,
                             )
-                            .len()
-                            .max(1)
-                            .min(u16::MAX as usize) as u16,
-                        )
+                            .len(),
+                            entry,
+                        ))
                     })
                     .unwrap_or(1)
             }
@@ -344,7 +349,9 @@ pub(super) fn render_expanded(
                     endpoint: next_endpoint,
                     entry,
                 }),
-            ) if endpoint == next_endpoint => u16::from(!entry.indented) * config.spaces.row_gap,
+            ) if endpoint == next_endpoint => {
+                super::sidebar::entry_gap(entry, config.spaces.row_gap)
+            }
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -446,6 +453,7 @@ pub(super) fn render_expanded(
                     snapshot,
                     workspace,
                     collapsed_groups,
+                    config.spaces.group_by,
                 );
                 let tokens = super::sidebar::workspace_rows(
                     workspace,
@@ -453,7 +461,7 @@ pub(super) fn render_expanded(
                     entry.indented,
                     &config.spaces,
                 );
-                let height = (tokens.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
+                let height = super::sidebar::entry_height(tokens.len(), entry).min(body.height);
                 if y.saturating_add(height) > body.bottom() {
                     break;
                 }
@@ -464,23 +472,36 @@ pub(super) fn render_expanded(
                     rect.width.saturating_sub(2),
                     rect.height,
                 );
+                let nested_rows = super::sidebar::workspace_rows_rect(nested, entry);
+                super::sidebar::render_group_header(
+                    buffer,
+                    nested,
+                    snapshot,
+                    entry,
+                    config.spaces.group_by,
+                    status,
+                    config.status_indicators,
+                    palette,
+                );
                 let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
-                super::sidebar::render_workspace_rows(
-                    buffer,
-                    nested,
-                    status,
-                    config.status_indicators,
-                    entry,
-                    tokens,
-                    endpoint_active && workspace.focused,
-                    selected,
-                    state.selected_workspace_id.is_some(),
-                    false,
-                    palette,
-                );
+                if !entry.collapsed_group {
+                    super::sidebar::render_workspace_rows(
+                        buffer,
+                        nested_rows,
+                        status,
+                        config.status_indicators,
+                        entry,
+                        tokens,
+                        endpoint_active && workspace.focused,
+                        selected,
+                        state.selected_workspace_id.is_some(),
+                        false,
+                        palette,
+                    );
+                }
                 if endpoint.status != ClientEndpointStatus::Online {
                     buffer.set_style(
                         rect,
@@ -493,14 +514,20 @@ pub(super) fn render_expanded(
                     buffer,
                     rect,
                     snapshot,
-                    entry.index,
+                    entry,
                     collapsed_groups,
+                    config.spaces.group_by,
                     palette,
                 );
                 hits.workspaces.push(WorkspaceHit {
-                    rect,
+                    rect: if entry.collapsed_group {
+                        rect
+                    } else {
+                        super::sidebar::workspace_rows_rect(rect, entry)
+                    },
                     endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
+                    pane_id: None,
                     indented: entry.indented,
                     group_toggle,
                 });
