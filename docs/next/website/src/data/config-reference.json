@@ -1079,6 +1079,16 @@
           "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
         },
         {
+          "key": "ui.sidebar.spaces.group_by",
+          "type": "enum",
+          "default": "worktree",
+          "description": "How the expanded Space sidebar groups workspaces. worktree nests Herdr-managed worktree checkouts under their primary repo workspace. cwd puts every workspace that shares a working directory (or a repo, when Herdr worktree provenance exists) under one collapsible group header named after the directory, with all members shown as equals. Uses the directory new terminals inherit, so it expects terminal.new_cwd = \"follow\".",
+          "values": [
+            "worktree",
+            "cwd"
+          ]
+        },
+        {
           "key": "ui.sidebar.spaces.row_gap",
           "type": "integer",
           "default": "0",

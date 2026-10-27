@@ -990,6 +990,26 @@ pub(super) struct WorkspaceEntry {
     pub(super) index: usize,
     pub(super) indented: bool,
     pub(super) last_child: bool,
+    /// First member of a cwd group: a group header line precedes its rows.
+    pub(super) group_header: bool,
+    /// Later member of a cwd group: packed to the previous entry without a row gap.
+    pub(super) continues_group: bool,
+}
+
+impl WorkspaceEntry {
+    pub(super) fn plain(index: usize) -> Self {
+        Self {
+            index,
+            indented: false,
+            last_child: false,
+            group_header: false,
+            continues_group: false,
+        }
+    }
+
+    pub(super) fn header_rows(&self) -> u16 {
+        u16::from(self.group_header)
+    }
 }
 
 impl ClientShellState {
@@ -1188,13 +1208,15 @@ impl ClientShellState {
         snapshot: &ClientShellSnapshot,
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
+        let group_by = self.config.spaces.group_by;
         if self.mobile_layout_active() {
-            render::workspace_entries(snapshot, &empty_collapsed_groups)
+            render::workspace_entries(snapshot, &empty_collapsed_groups, group_by)
         } else {
             render::workspace_entries(
                 snapshot,
                 self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
                     .unwrap_or(&empty_collapsed_groups),
+                group_by,
             )
         }
     }

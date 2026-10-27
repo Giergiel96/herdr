@@ -113,11 +113,7 @@ impl ClientShellState {
                     .workspaces
                     .iter()
                     .enumerate()
-                    .map(|(index, _)| WorkspaceEntry {
-                        index,
-                        indented: false,
-                        last_child: false,
-                    })
+                    .map(|(index, _)| WorkspaceEntry::plain(index))
                     .collect()
             } else {
                 let collapsed_groups = if mobile && surface_available {
@@ -126,7 +122,7 @@ impl ClientShellState {
                     self.collapsed_groups_for_endpoint(&endpoint.endpoint_id)
                         .unwrap_or(&empty_collapsed_groups)
                 };
-                render::workspace_entries(snapshot, collapsed_groups)
+                render::workspace_entries(snapshot, collapsed_groups, self.config.spaces.group_by)
             };
             for entry in entries {
                 targets.push(WorkspaceNavigationTarget {
