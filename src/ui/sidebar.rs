@@ -225,15 +225,15 @@ pub(crate) fn resolved_token_spans(
         match &token.kind {
             ResolvedTokenKind::StateIcon => spans.push(Span::styled(
                 state_icon.0.to_string(),
-                apply_token_style(state_icon.1, token.style),
+                apply_token_style(state_icon.1, token.style, palette),
             )),
             ResolvedTokenKind::StateText(text) => spans.push(Span::styled(
                 truncate_end(text, budgets[index]),
-                apply_token_style(state_text_style, token.style),
+                apply_token_style(state_text_style, token.style, palette),
             )),
             ResolvedTokenKind::Workspace(text) => spans.push(Span::styled(
                 truncate_end(text, budgets[index]),
-                apply_token_style(workspace_style, token.style),
+                apply_token_style(workspace_style, token.style, palette),
             )),
             ResolvedTokenKind::Machine(text)
             | ResolvedTokenKind::Tab(text)
@@ -241,32 +241,32 @@ pub(crate) fn resolved_token_spans(
             | ResolvedTokenKind::Agent(text)
             | ResolvedTokenKind::Branch(text) => spans.push(Span::styled(
                 truncate_end(text, budgets[index]),
-                apply_token_style(secondary_style, token.style),
+                apply_token_style(secondary_style, token.style, palette),
             )),
             ResolvedTokenKind::GitStatus { ahead, behind } => {
                 if *ahead > 0 {
                     spans.push(Span::styled(
                         format!("↑{ahead}"),
-                        apply_token_style(Style::default().fg(palette.green), token.style),
+                        apply_token_style(Style::default().fg(palette.green), token.style, palette),
                     ));
                 }
                 if *ahead > 0 && *behind > 0 {
                     spans.push(Span::styled(
                         " ",
-                        apply_token_style(Style::default(), token.style),
+                        apply_token_style(Style::default(), token.style, palette),
                     ));
                 }
                 if *behind > 0 {
                     spans.push(Span::styled(
                         format!("↓{behind}"),
-                        apply_token_style(Style::default().fg(palette.red), token.style),
+                        apply_token_style(Style::default().fg(palette.red), token.style, palette),
                     ));
                 }
             }
             ResolvedTokenKind::TerminalTitle(text) | ResolvedTokenKind::Custom(text) => {
                 spans.push(Span::styled(
                     truncate_end(text, budgets[index]),
-                    apply_token_style(custom_style, token.style),
+                    apply_token_style(custom_style, token.style, palette),
                 ));
             }
         }
@@ -274,9 +274,13 @@ pub(crate) fn resolved_token_spans(
     spans
 }
 
-fn apply_token_style(mut style: Style, patch: crate::config::SidebarTokenStyle) -> Style {
+fn apply_token_style(
+    mut style: Style,
+    patch: crate::config::SidebarTokenStyle,
+    palette: &Palette,
+) -> Style {
     if let Some(foreground) = patch.fg {
-        style = style.fg(foreground.ratatui());
+        style = style.fg(foreground.ratatui(palette));
     }
     if let Some(bold) = patch.bold {
         style = if bold {

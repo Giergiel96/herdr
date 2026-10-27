@@ -252,7 +252,11 @@ rows = [["state_icon", { token = "machine", fg = "#fff", bold = true, dim = true
             let token = &rows[0][1];
             assert_eq!(token.kind, ResolvedTokenKind::Machine(machine.into()));
             assert_eq!(
-                token.style.fg.unwrap().ratatui(),
+                token
+                    .style
+                    .fg
+                    .unwrap()
+                    .ratatui(&crate::app::state::Palette::catppuccin()),
                 ratatui::style::Color::Rgb(color.0, color.1, color.2)
             );
             assert_eq!(token.style.bold, Some(bold));

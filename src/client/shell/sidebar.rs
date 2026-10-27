@@ -449,6 +449,7 @@ fn render_space_list(
                 selected,
                 state.selected_workspace_id.is_some(),
                 dragged,
+                None,
                 palette,
             );
         }
@@ -1006,6 +1007,7 @@ pub(in crate::client::shell) fn workspace_rows(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // One render call per sidebar; a params struct would only move the list.
 pub(in crate::client::shell) fn render_workspace_rows(
     buffer: &mut Buffer,
     area: Rect,
@@ -1017,6 +1019,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     selected: bool,
     navigating: bool,
     dragged: bool,
+    name_style: Option<Style>,
     palette: &Palette,
 ) {
     for (row_index, row) in rows.iter().enumerate() {
@@ -1051,17 +1054,19 @@ pub(in crate::client::shell) fn render_workspace_rows(
             x = x.saturating_add(3);
         }
         let highlighted = focused || dragged;
-        let workspace_style = Style::default()
-            .fg(if highlighted {
-                palette.text
-            } else {
-                palette.subtext0
-            })
-            .add_modifier(if highlighted {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            });
+        let workspace_style = name_style.unwrap_or_else(|| {
+            Style::default()
+                .fg(if highlighted {
+                    palette.text
+                } else {
+                    palette.subtext0
+                })
+                .add_modifier(if highlighted {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                })
+        });
         let secondary_style = Style::default().fg(if focused {
             palette.mauve
         } else {

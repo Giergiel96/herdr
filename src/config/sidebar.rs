@@ -39,16 +39,92 @@ fn validate_sidebar_rows<T>(rows: &[Vec<T>]) -> Result<(), String> {
     Ok(())
 }
 
+/// A named color from the active theme palette, usable wherever a sidebar
+/// token accepts `fg`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SidebarTokenColor {
-    r: u8,
-    g: u8,
-    b: u8,
+pub enum SidebarPaletteColor {
+    Accent,
+    Text,
+    Subtext,
+    Overlay0,
+    Overlay1,
+    Surface0,
+    Surface1,
+    Mauve,
+    Green,
+    Yellow,
+    Red,
+    Blue,
+    Teal,
+    Peach,
+}
+
+impl SidebarPaletteColor {
+    const NAMES: [(&'static str, Self); 14] = [
+        ("accent", Self::Accent),
+        ("text", Self::Text),
+        ("subtext", Self::Subtext),
+        ("overlay0", Self::Overlay0),
+        ("overlay1", Self::Overlay1),
+        ("surface0", Self::Surface0),
+        ("surface1", Self::Surface1),
+        ("mauve", Self::Mauve),
+        ("green", Self::Green),
+        ("yellow", Self::Yellow),
+        ("red", Self::Red),
+        ("blue", Self::Blue),
+        ("teal", Self::Teal),
+        ("peach", Self::Peach),
+    ];
+
+    fn parse(name: &str) -> Option<Self> {
+        let name = name.to_ascii_lowercase();
+        Self::NAMES
+            .iter()
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, color)| *color)
+    }
+
+    fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, color)| *color == self)
+            .map(|(name, _)| *name)
+            .unwrap_or("text")
+    }
+
+    pub(crate) fn resolve(self, palette: &crate::app::state::Palette) -> ratatui::style::Color {
+        match self {
+            Self::Accent => palette.accent,
+            Self::Text => palette.text,
+            Self::Subtext => palette.subtext0,
+            Self::Overlay0 => palette.overlay0,
+            Self::Overlay1 => palette.overlay1,
+            Self::Surface0 => palette.surface0,
+            Self::Surface1 => palette.surface1,
+            Self::Mauve => palette.mauve,
+            Self::Green => palette.green,
+            Self::Yellow => palette.yellow,
+            Self::Red => palette.red,
+            Self::Blue => palette.blue,
+            Self::Teal => palette.teal,
+            Self::Peach => palette.peach,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarTokenColor {
+    Rgb(u8, u8, u8),
+    Palette(SidebarPaletteColor),
 }
 
 impl SidebarTokenColor {
-    pub(crate) fn ratatui(self) -> ratatui::style::Color {
-        ratatui::style::Color::Rgb(self.r, self.g, self.b)
+    pub(crate) fn ratatui(self, palette: &crate::app::state::Palette) -> ratatui::style::Color {
+        match self {
+            Self::Rgb(r, g, b) => ratatui::style::Color::Rgb(r, g, b),
+            Self::Palette(color) => color.resolve(palette),
+        }
     }
 }
 
@@ -57,7 +133,10 @@ impl Serialize for SidebarTokenColor {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b))
+        match self {
+            Self::Rgb(r, g, b) => serializer.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}")),
+            Self::Palette(color) => serializer.serialize_str(color.name()),
+        }
     }
 }
 
@@ -67,6 +146,9 @@ impl<'de> Deserialize<'de> for SidebarTokenColor {
         D: serde::Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
+        if let Some(color) = SidebarPaletteColor::parse(value.trim()) {
+            return Ok(Self::Palette(color));
+        }
         let hex = value.strip_prefix('#').filter(|hex| {
             hex.is_ascii()
                 && matches!(hex.len(), 3 | 6)
@@ -74,7 +156,7 @@ impl<'de> Deserialize<'de> for SidebarTokenColor {
         });
         let Some(hex) = hex else {
             return Err(serde::de::Error::custom(
-                "sidebar token fg must be #RGB or #RRGGBB",
+                "sidebar token fg must be #RGB, #RRGGBB or a palette color name (accent, text, subtext, overlay0, overlay1, surface0, surface1, mauve, green, yellow, red, blue, teal, peach)",
             ));
         };
         let (r, g, b) = if hex.len() == 3 {
@@ -93,7 +175,7 @@ impl<'de> Deserialize<'de> for SidebarTokenColor {
                 u8::from_str_radix(&hex[4..6], 16).expect("validated hex digits"),
             )
         };
-        Ok(Self { r, g, b })
+        Ok(Self::Rgb(r, g, b))
     }
 }
 
@@ -589,6 +671,38 @@ right = [{ token = "$ctx_ok", dim = true }, "$model"]
     }
 
     #[test]
+    fn token_fg_accepts_palette_names_and_hex() {
+        let config: crate::config::Config = toml::from_str(
+            r##"
+[ui.sidebar.spaces]
+rows = [[{ token = "workspace", fg = "teal" }, { token = "branch", fg = "#abc" }]]
+"##,
+        )
+        .expect("config parses");
+        let row = &config.ui.sidebar.spaces.rows[0];
+        assert_eq!(
+            row[0].parts().1.fg,
+            Some(SidebarTokenColor::Palette(SidebarPaletteColor::Teal))
+        );
+        assert_eq!(
+            row[1].parts().1.fg,
+            Some(SidebarTokenColor::Rgb(170, 187, 204))
+        );
+        let palette = crate::app::state::Palette::catppuccin();
+        assert_eq!(
+            SidebarTokenColor::Palette(SidebarPaletteColor::Teal).ratatui(&palette),
+            palette.teal
+        );
+        assert!(toml::from_str::<crate::config::Config>(
+            r#"
+[ui.sidebar.spaces]
+rows = [[{ token = "workspace", fg = "lavender" }]]
+"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn parses_space_panel_mode() {
         let config: crate::config::Config = toml::from_str(
             r#"
@@ -692,10 +806,7 @@ rows = [[{ token = "git_status", fg = "#ff00aa" }], [{ token = "$jj", bold = tru
         let (token, style) = config.ui.sidebar.agents.rows[0][0].parts();
         assert_eq!(token, &AgentSidebarToken::Workspace);
         assert_eq!(style.bold, Some(false));
-        assert_eq!(
-            style.fg.unwrap().ratatui(),
-            ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc)
-        );
+        assert_eq!(style.fg.unwrap(), SidebarTokenColor::Rgb(0xaa, 0xbb, 0xcc));
         assert_eq!(
             config.ui.sidebar.agents.rows[0][1],
             AgentSidebarToken::Workspace
@@ -708,10 +819,7 @@ rows = [[{ token = "git_status", fg = "#ff00aa" }], [{ token = "$jj", bold = tru
 
         let (token, style) = config.ui.sidebar.spaces.rows[0][0].parts();
         assert_eq!(token, &SpaceSidebarToken::GitStatus);
-        assert_eq!(
-            style.fg.unwrap().ratatui(),
-            ratatui::style::Color::Rgb(0xff, 0x00, 0xaa)
-        );
+        assert_eq!(style.fg.unwrap(), SidebarTokenColor::Rgb(0xff, 0x00, 0xaa));
         let (token, style) = config.ui.sidebar.spaces.rows[1][0].parts();
         assert_eq!(token, &SpaceSidebarToken::Custom("jj".into()));
         assert_eq!(style.bold, Some(true));
@@ -745,7 +853,7 @@ rows = [[{ token = "$status", rules = [{ contains = "error", bold = true }] }]]
             "{ lt = inf }",
             "{ gt = 80, ignore_case = false }",
             "{ equals = 'x', underline = true }",
-            "{ equals = 'x', fg = 'red' }",
+            "{ equals = 'x', fg = 'lavender' }",
         ] {
             let input = format!("[agents]\nrows = [[{{ token = 'machine', rules = [{rule}] }}]]");
             assert!(toml::from_str::<SidebarConfig>(&input).is_err(), "{rule}");
@@ -772,7 +880,7 @@ rows = [[{ token = "$status", rules = [{ contains = "error", bold = true }] }]]
     #[test]
     fn rejects_invalid_occurrence_styles() {
         for entry in [
-            r##"{ token = "workspace", fg = "red" }"##,
+            r##"{ token = "workspace", fg = "lavender" }"##,
             r##"{ token = "workspace", fg = "#abcd" }"##,
             r##"{ token = "workspace", underline = true }"##,
         ] {

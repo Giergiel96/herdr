@@ -291,6 +291,8 @@ fn cwd_grouping_renders_a_header_over_equal_members_and_collapses_them() {
 fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
     let mut raw = Config::default();
     raw.ui.sidebar.spaces.mode = crate::config::SpacePanelMode::Agents;
+    raw.ui.sidebar_width = 48;
+    raw.ui.sidebar_max_width = 48;
     let config = ClientShellConfig::from_config(&raw);
     let mut state = ClientShellState::new(config);
     let mut snapshot = snapshot();
@@ -352,7 +354,7 @@ fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
         AgentStatus::Working,
         vec![(
             "subagents".into(),
-            "mateusz-coder@1700000000;reviewer@1700000600".into(),
+            "mateusz-coder@1700000000@haiku 5.5;reviewer@1700000600".into(),
         )],
     ));
     snapshot
@@ -361,12 +363,25 @@ fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
     let frame = state.compose(106, 24).expect("composed frame");
-    let text = frame_rows(&frame).join("\n");
-    assert!(text.contains("repo ─"), "cwd header: {text}");
-    assert!(text.contains("─ 2"), "header counts agents: {text}");
+    let rows = frame_rows(&frame);
+    let text = rows.join("\n");
+    let header = rows
+        .iter()
+        .find(|row| row.contains("▾ repo"))
+        .expect("cwd header band");
+    assert!(
+        header
+            .split('│')
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .ends_with('2'),
+        "header counts agents at its right edge: {header}"
+    );
     assert!(text.contains("client-shell"));
     assert!(text.contains("repo-reviewer"));
     assert!(text.contains("├ mateusz-coder"), "subagent rows: {text}");
+    assert!(text.contains("✦ haiku 5.5"), "subagent model: {text}");
     assert!(text.contains("└ reviewer"), "last subagent: {text}");
     assert!(
         text.contains("services"),

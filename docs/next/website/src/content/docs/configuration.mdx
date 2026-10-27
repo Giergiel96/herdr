@@ -426,7 +426,7 @@ rows = [
 ]
 ```
 
-`fg` accepts strict `#RGB` or `#RRGGBB`. `bold` and `dim` accept booleans. Omitted fields preserve the token's contextual style; explicit `false` removes that modifier. Styling applies to one occurrence, so the same token may look different in another row or agent override. A foreground override replaces all semantic foregrounds inside that occurrence: for example, styled `git_status` ahead and behind counts use one color instead of their default green and red. Token styles never change separators or row backgrounds.
+`fg` accepts strict `#RGB` or `#RRGGBB`, or a palette color name that follows the active theme: `accent`, `text`, `subtext`, `overlay0`, `overlay1`, `surface0`, `surface1`, `mauve`, `green`, `yellow`, `red`, `blue`, `teal`, `peach`. `bold` and `dim` accept booleans. Omitted fields preserve the token's contextual style; explicit `false` removes that modifier. Styling applies to one occurrence, so the same token may look different in another row or agent override. A foreground override replaces all semantic foregrounds inside that occurrence: for example, styled `git_status` ahead and behind counts use one color instead of their default green and red. Token styles never change separators or row backgrounds.
 
 Text-valued tokens also accept up to 16 ordered `rules`. Each rule contains exactly one condition—`equals`, `contains`, `starts_with`, `gt`, or `lt`—and optional `fg`, `bold`, and `dim` overrides:
 
@@ -456,7 +456,7 @@ Rules work with text-valued built-ins and custom `$name` tokens in Agent rows, `
 mode = "agents"
 ```
 
-Each agent gets one entry rendered with the same `rows` tokens as a workspace (the agent's workspace supplies the label, branch, Git status and custom tokens; the agent supplies the state icon). Agents whose panes share a working directory sit under one collapsible header named after the directory. Workspaces without an agent appear as dimmed shell rows so they stay reachable. Clicking an agent row focuses its pane, keyboard workspace navigation walks the tree order, and workspace drag and drop is disabled in this mode. Subagents come from the `subagents` pane token, a `;`-separated list of `name@unix_seconds` entries reported by an integration hook; they render indented under their agent with the elapsed time, and the `▾` at the row's right edge collapses them.
+Each agent gets one entry rendered with the same `rows` tokens as a workspace (the agent's workspace supplies the label, branch, Git status and custom tokens; the agent supplies the state icon). Agents whose panes share a working directory sit under one collapsible header named after the directory. Workspaces without an agent appear as dimmed shell rows so they stay reachable. Clicking an agent row focuses its pane, keyboard workspace navigation walks the tree order, and workspace drag and drop is disabled in this mode. Subagents come from the `subagents` pane token (plus `subagents_2`.. overflow tokens), a `;`-separated list of `name@unix_seconds@model` entries reported by an integration hook; they render indented under their agent with the model and elapsed time, and the `▾` at the row's right edge collapses them. Agent names take the color of the agent state; group headers are bands in the surface color.
 
 `group_by` chooses how the Space panel groups workspaces:
 

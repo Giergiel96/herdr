@@ -33,6 +33,7 @@ pub(super) struct AgentTreeEntry {
     pub(super) status: AgentStatus,
     pub(super) count: usize,
     pub(super) started_unix: Option<u64>,
+    pub(super) model: Option<String>,
     pub(super) collapsed: bool,
     pub(super) last: bool,
     /// Member of a group with a header: packed to its neighbours without a row gap.
@@ -112,17 +113,40 @@ fn group_label(key: &str, snapshot: &ClientShellSnapshot, head: &Member<'_>) -> 
         .unwrap_or_else(|| snapshot.workspaces[head.workspace_index].label.clone())
 }
 
-/// Parse the `subagents` pane token into `(name, started_unix)` pairs.
-pub(super) fn parse_subagents(value: &str) -> Vec<(String, Option<u64>)> {
+/// One reported subagent: `name@started_unix@model`, model optional.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Subagent {
+    pub(super) name: String,
+    pub(super) started_unix: Option<u64>,
+    pub(super) model: Option<String>,
+}
+
+/// Parse the `subagents` pane token.
+pub(super) fn parse_subagents(value: &str) -> Vec<Subagent> {
     value
         .split(';')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
-        .map(|entry| match entry.rsplit_once('@') {
-            Some((name, started)) if !name.is_empty() => {
-                (name.to_owned(), started.trim().parse::<u64>().ok())
+        .map(|entry| {
+            let mut parts = entry.splitn(3, '@');
+            let name = parts.next().unwrap_or_default().trim();
+            let started_unix = parts
+                .next()
+                .and_then(|started| started.trim().parse::<u64>().ok());
+            let model = parts
+                .next()
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(str::to_owned);
+            Subagent {
+                name: if name.is_empty() {
+                    entry.to_owned()
+                } else {
+                    name.to_owned()
+                },
+                started_unix,
+                model,
             }
-            _ => (entry.to_owned(), None),
         })
         .collect()
 }
@@ -130,7 +154,7 @@ pub(super) fn parse_subagents(value: &str) -> Vec<(String, Option<u64>)> {
 /// Subagents from the `subagents` token plus its `subagents_2`.. overflow
 /// chunks, which the reporter uses because token values are capped at 80
 /// characters.
-fn subagents(agent: &ClientShellAgent) -> Vec<(String, Option<u64>)> {
+fn subagents(agent: &ClientShellAgent) -> Vec<Subagent> {
     let mut chunks = agent
         .tokens
         .iter()
@@ -200,6 +224,7 @@ pub(super) fn entries(
                     .unwrap_or(AgentStatus::Unknown),
                 count: group.len(),
                 started_unix: None,
+                model: None,
                 collapsed,
                 last: false,
                 grouped: false,
@@ -231,6 +256,7 @@ pub(super) fn entries(
                 status: member_status(member),
                 count: children.len(),
                 started_unix: None,
+                model: None,
                 collapsed: children_collapsed,
                 last: false,
                 grouped,
@@ -239,16 +265,17 @@ pub(super) fn entries(
                 continue;
             }
             let total = children.len();
-            for (child_index, (name, started_unix)) in children.into_iter().enumerate() {
+            for (child_index, child) in children.into_iter().enumerate() {
                 out.push(AgentTreeEntry {
                     kind: AgentTreeKind::Subagent,
                     key: subagent_key.clone(),
                     workspace_index: member.workspace_index,
                     pane_id: member.pane_id.clone(),
-                    label: name,
+                    label: child.name,
                     status: AgentStatus::Working,
                     count: 0,
-                    started_unix,
+                    started_unix: child.started_unix,
+                    model: child.model,
                     collapsed: false,
                     last: child_index + 1 == total,
                     grouped,
@@ -330,10 +357,14 @@ fn render_header(
     indicators: crate::config::StatusIndicatorStyle,
     palette: &Palette,
 ) {
-    if highlighted {
-        buffer.set_style(line, Style::default().bg(palette.active_row_bg));
-    }
-    let accent = Style::default().fg(palette.accent);
+    // The header is a band: section background across the whole line.
+    let band = if highlighted {
+        palette.surface1
+    } else {
+        palette.surface0
+    };
+    buffer.set_style(line, Style::default().bg(band));
+    let accent = Style::default().fg(palette.accent).bg(band);
     let right = line.right().saturating_sub(1);
     let mut x = put_segment(
         buffer,
@@ -363,19 +394,29 @@ fn render_header(
         accent.add_modifier(Modifier::BOLD),
     );
     let count = entry.count.to_string();
-    let count_width = display_width(&count).saturating_add(1);
-    let rule_right = right.saturating_sub(count_width);
-    if x.saturating_add(1) < rule_right {
-        x = put_segment(
-            buffer,
-            x.saturating_add(1),
-            line.y,
-            rule_right,
-            &"─".repeat(usize::from(rule_right.saturating_sub(x).saturating_sub(1))),
-            accent.add_modifier(Modifier::DIM),
-        );
+    put_right_text(
+        buffer,
+        Rect::new(x, line.y, right.saturating_sub(x), 1),
+        line.y,
+        &count,
+        Style::default().fg(palette.overlay1).bg(band),
+    );
+}
+
+/// Name color follows the agent state; the icon alone was easy to miss.
+fn name_style(status: AgentStatus, focused: bool, palette: &Palette) -> Style {
+    let color = match status {
+        AgentStatus::Blocked | AgentStatus::Done => status_color(status, palette),
+        AgentStatus::Working => palette.text,
+        AgentStatus::Idle => palette.subtext0,
+        AgentStatus::Unknown => palette.overlay1,
+    };
+    let style = Style::default().fg(color);
+    if focused || matches!(status, AgentStatus::Blocked) {
+        style.add_modifier(Modifier::BOLD)
+    } else {
+        style
     }
-    put_segment(buffer, x.saturating_add(1), line.y, right, &count, accent);
 }
 
 fn render_subagent(
@@ -403,8 +444,20 @@ fn render_subagent(
         line.y,
         label_right,
         &entry.label,
-        Style::default().fg(palette.subtext0),
+        Style::default().fg(palette.overlay1),
     );
+    if let Some(model) = entry.model.as_deref() {
+        x = put_segment(
+            buffer,
+            x,
+            line.y,
+            label_right,
+            &format!(" ✦ {model}"),
+            Style::default()
+                .fg(palette.peach)
+                .add_modifier(Modifier::DIM),
+        );
+    }
     if !elapsed.is_empty() {
         put_right_text(
             buffer,
@@ -567,7 +620,7 @@ pub(super) fn render_agent_tree(
                 if selected {
                     buffer.set_style(rect, Style::default().bg(palette.selection_bg));
                 } else if focused {
-                    buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
+                    buffer.set_style(rect, Style::default().bg(palette.surface0));
                 }
                 super::sidebar::render_workspace_rows(
                     buffer,
@@ -580,6 +633,8 @@ pub(super) fn render_agent_tree(
                     selected,
                     navigating,
                     false,
+                    (entry.kind == AgentTreeKind::Agent)
+                        .then(|| name_style(entry.status, focused, palette)),
                     palette,
                 );
                 if entry.kind == AgentTreeKind::Shell {
@@ -648,12 +703,20 @@ mod tests {
 
     #[test]
     fn parses_subagent_token_entries() {
+        let parsed = parse_subagents("coder@1700000000@haiku 5.5;reviewer@abc; lone ;");
         assert_eq!(
-            parse_subagents("coder@1700000000;reviewer@abc; lone ;"),
+            parsed
+                .iter()
+                .map(|entry| (
+                    entry.name.as_str(),
+                    entry.started_unix,
+                    entry.model.as_deref()
+                ))
+                .collect::<Vec<_>>(),
             vec![
-                ("coder".to_owned(), Some(1_700_000_000)),
-                ("reviewer".to_owned(), None),
-                ("lone".to_owned(), None),
+                ("coder", Some(1_700_000_000), Some("haiku 5.5")),
+                ("reviewer", None, None),
+                ("lone", None, None),
             ]
         );
         assert!(parse_subagents("").is_empty());
@@ -684,7 +747,7 @@ mod tests {
         assert_eq!(
             subagents(&agent)
                 .into_iter()
-                .map(|(name, _)| name)
+                .map(|entry| entry.name)
                 .collect::<Vec<_>>(),
             ["a", "b", "c"]
         );
