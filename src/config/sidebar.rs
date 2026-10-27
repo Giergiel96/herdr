@@ -400,6 +400,7 @@ impl<'de> Deserialize<'de> for SpaceSidebarToken {
 
 type AgentSidebarRows = Vec<Vec<AgentSidebarToken>>;
 type SpaceSidebarRows = Vec<Vec<SpaceSidebarToken>>;
+type AgentBarTokens = Vec<AgentSidebarToken>;
 
 fn deserialize_rows_by_agent<'de, D>(
     deserializer: D,
@@ -510,8 +511,8 @@ impl Default for SpacesSidebarConfig {
 #[serde(default)]
 pub struct AgentBarConfig {
     pub enabled: bool,
-    pub left: Vec<AgentSidebarToken>,
-    pub right: Vec<AgentSidebarToken>,
+    pub left: AgentBarTokens,
+    pub right: AgentBarTokens,
 }
 
 impl Default for AgentBarConfig {
