@@ -756,7 +756,15 @@ impl ClientShellState {
         use crate::input::{KeybindAction, KeybindDispatch, KeybindMatch};
 
         self.pending_workspace_highlight = None;
-        if key.code == KeyCode::Esc || self.config.keybinds.matches_prefix(key) {
+        if key.code == KeyCode::Esc
+            || self.config.keybinds.matches_prefix(key)
+            || self
+                .config
+                .keybinds
+                .keybinds
+                .focus_panes
+                .matches_direct_key(key)
+        {
             self.cancel_navigate(outcome);
             return;
         }
@@ -932,7 +940,7 @@ impl ClientShellState {
         }
     }
 
-    fn cancel_navigate(&mut self, outcome: &mut ClientShellInput) {
+    pub(super) fn cancel_navigate(&mut self, outcome: &mut ClientShellInput) {
         self.mode = self.copy_or_terminal_mode();
         self.navigate_workspace_id = None;
         outcome.repaint = true;
