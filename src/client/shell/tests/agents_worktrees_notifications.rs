@@ -520,6 +520,38 @@ focus_panes = "f15"
     assert_eq!(state.mode, ClientShellMode::Terminal);
     assert!(state.navigate_workspace_id.is_none());
 
+    let f14: Config = toml::from_str(
+        r#"
+[keys]
+next_workspace = "f14"
+previous_workspace = "f13"
+"#,
+    )
+    .expect("config parses");
+    let mut nav = ClientShellState::new(ClientShellConfig::from_config(&f14));
+    let mut two = snapshot();
+    let mut second = two.workspaces[0].clone();
+    second.workspace_id = "ws_2".into();
+    second.number = 2;
+    second.label = "second".into();
+    second.focused = false;
+    two.workspaces.push(second);
+    nav.set_snapshot(Box::new(two));
+    nav.set_pane_surface(surface());
+    let next = nav.handle_input_bytes(b"\x1b[26~");
+    assert!(
+        matches!(
+            &next.actions[..],
+            [ClientShellAction::Endpoint { request, .. }]
+                if matches!(
+                    &request.method,
+                    crate::api::schema::Method::WorkspaceFocus(target)
+                        if target.workspace_id == "ws_2"
+                )
+        ),
+        "f14 focuses the next workspace immediately"
+    );
+
     let idle = state.handle_input_bytes(b"\x1b[28~");
     assert_eq!(
         state.mode,
