@@ -35,6 +35,8 @@ pub(super) struct AgentTreeEntry {
     pub(super) started_unix: Option<u64>,
     pub(super) collapsed: bool,
     pub(super) last: bool,
+    /// Member of a group with a header: packed to its neighbours without a row gap.
+    pub(super) grouped: bool,
 }
 
 struct Member<'a> {
@@ -200,6 +202,7 @@ pub(super) fn entries(
                 started_unix: None,
                 collapsed,
                 last: false,
+                grouped: false,
             });
             if collapsed {
                 continue;
@@ -230,6 +233,7 @@ pub(super) fn entries(
                 started_unix: None,
                 collapsed: children_collapsed,
                 last: false,
+                grouped,
             });
             if children_collapsed {
                 continue;
@@ -247,6 +251,7 @@ pub(super) fn entries(
                     started_unix,
                     collapsed: false,
                     last: child_index + 1 == total,
+                    grouped,
                 });
             }
         }
@@ -307,8 +312,14 @@ fn entry_height(entry: &AgentTreeEntry, rows: usize) -> u16 {
     }
 }
 
+/// Blank rows before `next`: only ahead of a group header or a standalone row.
 fn gap_before(next: &AgentTreeEntry, row_gap: u16) -> u16 {
-    u16::from(next.kind != AgentTreeKind::Subagent) * row_gap
+    let separates = match next.kind {
+        AgentTreeKind::Header => true,
+        AgentTreeKind::Agent | AgentTreeKind::Shell => !next.grouped,
+        AgentTreeKind::Subagent => false,
+    };
+    u16::from(separates) * row_gap
 }
 
 fn render_header(
