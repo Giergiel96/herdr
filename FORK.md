@@ -32,6 +32,12 @@ for `SubagentStart`, `SubagentStop` and `SessionStart`) writes the `subagents` p
 agents mode renders. It is a Claude Code hook, not part of herdr; keep it when reinstalling the
 herdr Claude integration, which only overwrites `herdr-agent-state.sh`.
 
+GitHub Actions are disabled on the fork (repo settings) and `.github/workflows` is deleted in
+its own commit, so nothing publishes releases, previews or the website from here. On a rebase,
+conflicts in those files resolve with `git rm`. Never open a pull request against
+`herdrdev/herdr` from this branch: the upstream gate closes PRs from accounts outside
+`.github/APPROVED_CONTRIBUTORS` (see #5605).
+
 ## Rebasing on upstream
 
 ```sh
