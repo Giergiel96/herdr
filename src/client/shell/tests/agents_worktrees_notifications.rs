@@ -248,6 +248,9 @@ fn cwd_grouping_renders_a_header_over_equal_members_and_collapses_them() {
     let collapsed = state.compose(106, 20).expect("collapsed cwd group");
     let text = frame_rows(&collapsed).join("\n");
     assert!(!text.contains("repo-reviewer"), "hidden member: {text}");
+    assert!(!text.contains("client-shell"), "the head hides too: {text}");
+    assert!(text.contains("▸"), "collapsed glyph: {text}");
+    assert!(text.contains("other-project"));
     assert_eq!(
         state
             .hits
@@ -258,12 +261,29 @@ fn cwd_grouping_renders_a_header_over_equal_members_and_collapses_them() {
         ["ws_1", "ws_other"]
     );
     let head = state.hits.workspaces[0].rect;
-    let status_cell =
-        usize::from(head.y) * usize::from(collapsed.width) + usize::from(head.x.saturating_add(1));
-    assert_eq!(
-        collapsed.cells[status_cell].fg,
-        crate::protocol::color_to_u32(state.config.palette.red),
+    assert_eq!(head.height, 1, "a collapsed group is its header line");
+    let (toggle, _) = state.hits.workspaces[0]
+        .group_toggle
+        .as_ref()
+        .expect("collapsed header toggles");
+    assert_eq!(*toggle, head);
+    let header_cells = &collapsed.cells[usize::from(head.y) * usize::from(collapsed.width)..]
+        [usize::from(head.x)..usize::from(head.right())];
+    let red = crate::protocol::color_to_u32(state.config.palette.red);
+    assert!(
+        header_cells.iter().any(|cell| cell.fg == red),
         "a collapsed header rolls up the most urgent member state"
+    );
+    let active = crate::protocol::color_to_u32(state.config.palette.active_row_bg);
+    assert!(
+        header_cells.iter().all(|cell| cell.bg == active),
+        "a collapsed header highlights when a member is focused"
+    );
+    let other = state.hits.workspaces[1].rect;
+    assert_eq!(
+        other.y,
+        head.bottom(),
+        "the next entry follows the header directly"
     );
 }
 

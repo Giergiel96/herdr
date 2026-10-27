@@ -994,6 +994,8 @@ pub(super) struct WorkspaceEntry {
     pub(super) group_header: bool,
     /// Later member of a cwd group: packed to the previous entry without a row gap.
     pub(super) continues_group: bool,
+    /// Collapsed cwd group: only the header line renders, no member rows.
+    pub(super) collapsed_group: bool,
 }
 
 impl WorkspaceEntry {
@@ -1004,6 +1006,7 @@ impl WorkspaceEntry {
             last_child: false,
             group_header: false,
             continues_group: false,
+            collapsed_group: false,
         }
     }
 

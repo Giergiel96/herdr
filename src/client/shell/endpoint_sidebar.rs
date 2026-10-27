@@ -478,25 +478,29 @@ pub(super) fn render_expanded(
                     snapshot,
                     entry,
                     config.spaces.group_by,
+                    status,
+                    config.status_indicators,
                     palette,
                 );
                 let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
-                super::sidebar::render_workspace_rows(
-                    buffer,
-                    nested_rows,
-                    status,
-                    config.status_indicators,
-                    entry,
-                    tokens,
-                    endpoint_active && workspace.focused,
-                    selected,
-                    state.selected_workspace_id.is_some(),
-                    false,
-                    palette,
-                );
+                if !entry.collapsed_group {
+                    super::sidebar::render_workspace_rows(
+                        buffer,
+                        nested_rows,
+                        status,
+                        config.status_indicators,
+                        entry,
+                        tokens,
+                        endpoint_active && workspace.focused,
+                        selected,
+                        state.selected_workspace_id.is_some(),
+                        false,
+                        palette,
+                    );
+                }
                 if endpoint.status != ClientEndpointStatus::Online {
                     buffer.set_style(
                         rect,
@@ -515,7 +519,11 @@ pub(super) fn render_expanded(
                     palette,
                 );
                 hits.workspaces.push(WorkspaceHit {
-                    rect: super::sidebar::workspace_rows_rect(rect, entry),
+                    rect: if entry.collapsed_group {
+                        rect
+                    } else {
+                        super::sidebar::workspace_rows_rect(rect, entry)
+                    },
                     endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
                     indented: entry.indented,

@@ -331,20 +331,31 @@ pub(crate) fn render_sidebar(
         } else if workspace.focused {
             buffer.set_style(rows_rect, Style::default().bg(palette.active_row_bg));
         }
-        render_group_header(buffer, rect, snapshot, entry, group_by, palette);
-        render_workspace_rows(
+        render_group_header(
             buffer,
-            rows_rect,
+            rect,
+            snapshot,
+            entry,
+            group_by,
             status,
             config.status_indicators,
-            entry,
-            rows,
-            workspace.focused,
-            selected,
-            state.selected_workspace_id.is_some(),
-            dragged,
             palette,
         );
+        if !entry.collapsed_group {
+            render_workspace_rows(
+                buffer,
+                rows_rect,
+                status,
+                config.status_indicators,
+                entry,
+                rows,
+                workspace.focused,
+                selected,
+                state.selected_workspace_id.is_some(),
+                dragged,
+                palette,
+            );
+        }
         let group_toggle = render_parent_group_toggle(
             buffer,
             rect,
@@ -355,7 +366,11 @@ pub(crate) fn render_sidebar(
             palette,
         );
         hits.workspaces.push(WorkspaceHit {
-            rect: rows_rect,
+            rect: if entry.collapsed_group {
+                rect
+            } else {
+                rows_rect
+            },
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: entry.indented,
@@ -561,22 +576,18 @@ fn cwd_entries(
         let Some((head, rest)) = group.split_first() else {
             continue;
         };
+        let collapsed = collapsed_groups.contains(key);
         entries.push(WorkspaceEntry {
             group_header: true,
+            collapsed_group: collapsed,
             ..WorkspaceEntry::plain(*head)
         });
-        let rest = if collapsed_groups.contains(key) {
-            rest.iter()
-                .copied()
-                .filter(|member| snapshot.workspaces[*member].focused)
-                .take(1)
-                .collect::<Vec<_>>()
-        } else {
-            rest.to_vec()
-        };
-        entries.extend(rest.into_iter().map(|member| WorkspaceEntry {
+        if collapsed {
+            continue;
+        }
+        entries.extend(rest.iter().map(|member| WorkspaceEntry {
             continues_group: true,
-            ..WorkspaceEntry::plain(member)
+            ..WorkspaceEntry::plain(*member)
         }));
     }
     entries
@@ -673,7 +684,11 @@ fn worktree_entries(
 }
 
 /// Terminal rows an entry occupies: its content rows plus a group header line.
+/// A collapsed cwd group is its header line alone.
 pub(in crate::client::shell) fn entry_height(rows: usize, entry: &WorkspaceEntry) -> u16 {
+    if entry.collapsed_group {
+        return entry.header_rows().max(1);
+    }
     (rows.max(1).min(u16::MAX as usize) as u16).saturating_add(entry.header_rows())
 }
 
@@ -713,12 +728,15 @@ fn cwd_group_header(snapshot: &ClientShellSnapshot, index: usize) -> Option<(Str
     Some((label, members.get(key)?.len()))
 }
 
+#[allow(clippy::too_many_arguments)] // Mirrors render_workspace_rows: one call site per sidebar.
 pub(in crate::client::shell) fn render_group_header(
     buffer: &mut Buffer,
     rect: Rect,
     snapshot: &ClientShellSnapshot,
     entry: &WorkspaceEntry,
     group_by: SpaceGroupBy,
+    status: crate::api::schema::AgentStatus,
+    indicators: crate::config::StatusIndicatorStyle,
     palette: &Palette,
 ) {
     if !entry.group_header || group_by != SpaceGroupBy::Cwd || rect.height == 0 {
@@ -727,19 +745,48 @@ pub(in crate::client::shell) fn render_group_header(
     let Some((label, count)) = cwd_group_header(snapshot, entry.index) else {
         return;
     };
-    let count = count.to_string();
-    // Leave the last two columns for the collapse toggle.
-    let right = rect.right().saturating_sub(2);
+    let line = Rect::new(rect.x, rect.y, rect.width, 1);
+    let member_focused = entry.collapsed_group
+        && cwd_group_member_indices(snapshot, entry.index)
+            .into_iter()
+            .any(|member| snapshot.workspaces[member].focused);
+    if member_focused {
+        buffer.set_style(line, Style::default().bg(palette.active_row_bg));
+    }
+    let accent = Style::default().fg(palette.accent);
+    let right = rect.right().saturating_sub(1);
     let mut x = put_segment(
         buffer,
-        rect.x.saturating_add(1),
+        rect.x,
+        rect.y,
+        right,
+        if entry.collapsed_group {
+            "▸ "
+        } else {
+            "▾ "
+        },
+        accent,
+    );
+    if entry.collapsed_group {
+        x = put_segment(
+            buffer,
+            x,
+            rect.y,
+            right,
+            status_icon(status, indicators),
+            Style::default().fg(status_color(status, palette)),
+        );
+        x = x.saturating_add(1);
+    }
+    x = put_segment(
+        buffer,
+        x,
         rect.y,
         right,
         &label,
-        Style::default()
-            .fg(palette.text)
-            .add_modifier(Modifier::BOLD),
+        accent.add_modifier(Modifier::BOLD),
     );
+    let count = count.to_string();
     let count_width = display_width(&count).saturating_add(1);
     let rule_right = right.saturating_sub(count_width);
     if x.saturating_add(1) < rule_right {
@@ -749,17 +796,21 @@ pub(in crate::client::shell) fn render_group_header(
             rect.y,
             rule_right,
             &"─".repeat(usize::from(rule_right.saturating_sub(x).saturating_sub(1))),
-            Style::default().fg(palette.surface_dim),
+            accent.add_modifier(Modifier::DIM),
         );
     }
-    put_segment(
-        buffer,
-        x.saturating_add(1),
-        rect.y,
-        right,
-        &count,
-        Style::default().fg(palette.overlay1),
-    );
+    put_segment(buffer, x.saturating_add(1), rect.y, right, &count, accent);
+}
+
+/// Every member index of the cwd group that `index` belongs to, in snapshot order.
+fn cwd_group_member_indices(snapshot: &ClientShellSnapshot, index: usize) -> Vec<usize> {
+    let keys = cwd_group_keys(snapshot);
+    let members = cwd_group_members(&keys);
+    keys.get(index)
+        .and_then(|key| key.as_deref())
+        .and_then(|key| members.get(key))
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn parent_group_key(
@@ -828,18 +879,19 @@ pub(in crate::client::shell) fn render_parent_group_toggle(
     palette: &Palette,
 ) -> Option<(Rect, String)> {
     let key = parent_group_key(snapshot, entry.index, group_by)?;
+    // A cwd group header draws its own glyph; the whole header line toggles it.
+    if entry.group_header {
+        return Some((
+            Rect::new(workspace_rect.x, workspace_rect.y, workspace_rect.width, 1),
+            key,
+        ));
+    }
     let toggle = Rect::new(
         workspace_rect.right().saturating_sub(1),
         workspace_rect.y,
         1,
         1,
     );
-    // The whole header line toggles a cwd group.
-    let hit = if entry.group_header {
-        Rect::new(workspace_rect.x, workspace_rect.y, workspace_rect.width, 1)
-    } else {
-        toggle
-    };
     put_text(
         buffer,
         toggle.x,
@@ -852,7 +904,7 @@ pub(in crate::client::shell) fn render_parent_group_toggle(
         },
         Style::default().fg(palette.accent),
     );
-    Some((hit, key))
+    Some((toggle, key))
 }
 
 pub(in crate::client::shell) fn displayed_workspace_status(
