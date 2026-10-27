@@ -136,6 +136,7 @@ impl ClientShellConfig {
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+            agent_bar: config.ui.agent_bar.clone(),
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
@@ -363,6 +364,7 @@ impl ClientShellConfig {
                 self.mobile_width_threshold = ui.mobile_width_threshold;
                 self.tab_bar_position = ui.tab_bar_position;
                 self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
+                self.agent_bar = ui.agent_bar.clone();
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;
@@ -430,7 +432,8 @@ impl ClientShellConfig {
         }
         .min(cols.saturating_sub(1));
         let main = Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows);
-        let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
+        let show_tab_bar = rows > 1
+            && (self.agent_bar.enabled || !(self.hide_tab_bar_when_single_tab && tab_count == 1));
         let tab_height = u16::from(show_tab_bar);
         let (tab_bar, pane_surface) = match self.tab_bar_position {
             TabBarPositionConfig::Top => (

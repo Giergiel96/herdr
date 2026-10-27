@@ -1041,6 +1041,24 @@
           "description": "Title Herdr writes to the terminal it runs in. Tokens: {hostname}, {workspace}, {tab}, {pane}, {terminal_title}. Empty leaves the outer title alone."
         },
         {
+          "key": "ui.agent_bar.enabled",
+          "type": "boolean",
+          "default": "false",
+          "description": "Replace the tab row with a one-line agent bar. The bar always shows while enabled; tabs stay reachable from the keyboard."
+        },
+        {
+          "key": "ui.agent_bar.left",
+          "type": "list of tokens",
+          "default": "[\"state_icon\", \"workspace\", \"agent\"]",
+          "description": "Agent tokens rendered at the left of the agent bar for the focused agent (or the focused workspace when it has no agent). Same tokens and inline style tables as ui.sidebar.agents.rows."
+        },
+        {
+          "key": "ui.agent_bar.right",
+          "type": "list of tokens",
+          "default": "[]",
+          "description": "Agent tokens rendered right-aligned in the agent bar. $name metadata tokens resolve from the focused agent's pane merged over its workspace, so usage reported on either level shows."
+        },
+        {
           "key": "ui.agent_panel_sort",
           "type": "enum",
           "default": "\"spaces\"",
