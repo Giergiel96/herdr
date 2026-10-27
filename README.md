@@ -36,9 +36,10 @@ Each change, the files it touches and the rebase recipe are in
 
 ## Branches
 
-- `master`: untouched mirror of `upstream/master`, fast-forward only.
-- `develop`: default branch, the fork's line. Features land through pull
-  requests on this repository, never against `herdrdev/herdr`.
+- `develop`: the only long-lived branch and the default. It is rebased onto
+  `upstream/master` whenever the fork catches up with a herdr release, so its
+  history rewrites; features land through pull requests on this repository,
+  never against `herdrdev/herdr`.
 
 ## Building
 

@@ -44,16 +44,16 @@ conflicts in those files resolve with `git rm`. Never open a pull request agains
 
 ## Branches
 
-- `master`: untouched mirror of `upstream/master`. Only ever fast-forward it.
-- `develop`: the fork's line, default branch. Feature branches merge here through pull requests on
-  the fork (never against `herdrdev/herdr`).
+- `develop`: the fork's only long-lived branch and the GitHub default. Feature branches merge here
+  through pull requests on the fork (never against `herdrdev/herdr`). There is no `master` on the
+  fork; upstream's `master` is reached through the `upstream` remote.
 
 ## Rebasing on upstream
 
 ```sh
 git fetch upstream
-git checkout master && git merge --ff-only upstream/master && git push origin master
-git checkout develop && git rebase master      # or `git merge master` to keep history
+git checkout develop && git rebase upstream/master
+git push --force-with-lease origin develop
 ```
 
 Expected conflict spots: `src/client/shell/sidebar.rs` (grouping and render loop),
