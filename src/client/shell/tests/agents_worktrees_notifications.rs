@@ -288,6 +288,161 @@ fn cwd_grouping_renders_a_header_over_equal_members_and_collapses_them() {
 }
 
 #[test]
+fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
+    let mut raw = Config::default();
+    raw.ui.sidebar.spaces.mode = crate::config::SpacePanelMode::Agents;
+    let config = ClientShellConfig::from_config(&raw);
+    let mut state = ClientShellState::new(config);
+    let mut snapshot = snapshot();
+    let workspace = |id: &str, number: usize, cwd: &str, label: &str| ClientShellWorkspace {
+        workspace_id: id.into(),
+        active_tab_id: format!("tab_{id}"),
+        new_workspace_cwd: cwd.into(),
+        number,
+        label: label.into(),
+        custom_label: true,
+        branch: Some("main".into()),
+        git_ahead_behind: None,
+        tokens: Vec::new(),
+        worktree: None,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    };
+    let pane = |id: &str, ws: &str, cwd: &str| ClientShellPane {
+        pane_id: id.into(),
+        workspace_id: ws.into(),
+        tab_id: format!("tab_{ws}"),
+        label: None,
+        cwd: Some(cwd.into()),
+        foreground_cwd: Some(cwd.into()),
+        focused: false,
+        right_click_passthrough: false,
+    };
+    let agent = |pane_id: &str, ws: &str, status: AgentStatus, tokens: Vec<(String, String)>| {
+        ClientShellAgent {
+            pane_id: pane_id.into(),
+            workspace_id: ws.into(),
+            tab_id: format!("tab_{ws}"),
+            name: None,
+            display_agent: Some("claude".into()),
+            agent: Some("claude".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: status,
+            state_change_seq: 1,
+            state_labels: Vec::new(),
+            tokens,
+            focused: false,
+        }
+    };
+    snapshot
+        .workspaces
+        .push(workspace("ws_2", 2, "/repo", "repo-reviewer"));
+    snapshot
+        .workspaces
+        .push(workspace("ws_shell", 3, "/tools", "services"));
+    snapshot.panes.push(pane("pane_2", "ws_2", "/repo"));
+    snapshot
+        .panes
+        .push(pane("pane_shell", "ws_shell", "/tools"));
+    snapshot.agents.push(agent(
+        "pane_1",
+        "ws_1",
+        AgentStatus::Working,
+        vec![(
+            "subagents".into(),
+            "mateusz-coder@1700000000;reviewer@1700000600".into(),
+        )],
+    ));
+    snapshot
+        .agents
+        .push(agent("pane_2", "ws_2", AgentStatus::Blocked, Vec::new()));
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 24).expect("composed frame");
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains("repo ─"), "cwd header: {text}");
+    assert!(text.contains("─ 2"), "header counts agents: {text}");
+    assert!(text.contains("client-shell"));
+    assert!(text.contains("repo-reviewer"));
+    assert!(text.contains("├ mateusz-coder"), "subagent rows: {text}");
+    assert!(text.contains("└ reviewer"), "last subagent: {text}");
+    assert!(
+        text.contains("services"),
+        "shell row for an agentless workspace: {text}"
+    );
+
+    let hits = &state.hits.workspaces;
+    let kinds = hits
+        .iter()
+        .map(|hit| (hit.workspace_id.as_str(), hit.pane_id.as_deref()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            ("ws_1", None),
+            ("ws_1", Some("pane_1")),
+            ("ws_1", Some("pane_1")),
+            ("ws_1", Some("pane_1")),
+            ("ws_2", Some("pane_2")),
+            ("ws_shell", Some("pane_shell")),
+        ],
+        "header, agent, two subagents, second agent, shell row"
+    );
+    let (toggle, key) = hits[1]
+        .group_toggle
+        .as_ref()
+        .expect("agent with subagents toggles");
+    assert_eq!(key, "pane:pane_1");
+    assert_eq!(toggle.width, 1);
+
+    let mut next = ClientShellInput::default();
+    state.record_binding(
+        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextWorkspace),
+        &mut next,
+    );
+    assert!(
+        matches!(
+            &next.actions[..],
+            [ClientShellAction::Endpoint { request, .. }]
+                if matches!(
+                    &request.method,
+                    crate::api::schema::Method::WorkspaceFocus(target)
+                        if target.workspace_id == "ws_2"
+                )
+        ),
+        "keyboard walks the tree order"
+    );
+
+    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
+    replacement.revision = 2;
+    let mut replacement_surface = surface();
+    replacement_surface.projection_revision = 2;
+    state.collapsed_groups.insert("pane:pane_1".into());
+    state.collapsed_groups.insert("/repo".into());
+    state.set_snapshot(Box::new(replacement));
+    state.set_pane_surface(replacement_surface);
+    let collapsed = state.compose(106, 24).expect("collapsed tree");
+    let text = frame_rows(&collapsed).join("\n");
+    assert!(
+        !text.contains("mateusz-coder"),
+        "collapsed group hides subagents: {text}"
+    );
+    assert!(text.contains("services"));
+    assert_eq!(
+        state
+            .hits
+            .workspaces
+            .iter()
+            .map(|hit| (hit.workspace_id.as_str(), hit.pane_id.as_deref()))
+            .collect::<Vec<_>>(),
+        [("ws_1", None), ("ws_shell", Some("pane_shell"))],
+        "a collapsed group is its header line; agents stay hidden"
+    );
+}
+
+#[test]
 fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
     for linked_child in [false, true] {
         let mut projected = snapshot();

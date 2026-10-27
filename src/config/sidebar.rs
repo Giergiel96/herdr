@@ -467,6 +467,19 @@ pub enum SpaceGroupBy {
     Cwd,
 }
 
+/// What the upper sidebar panel lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpacePanelMode {
+    /// One entry per workspace.
+    #[default]
+    Spaces,
+    /// One entry per agent, grouped by the agent pane's working directory,
+    /// with reported subagents nested underneath. Workspaces without an agent
+    /// appear as dimmed shell rows.
+    Agents,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SpacesSidebarConfig {
@@ -474,6 +487,7 @@ pub struct SpacesSidebarConfig {
     pub rows: SpaceSidebarRows,
     pub row_gap: u16,
     pub group_by: SpaceGroupBy,
+    pub mode: SpacePanelMode,
 }
 
 impl Default for SpacesSidebarConfig {
@@ -485,6 +499,7 @@ impl Default for SpacesSidebarConfig {
             ],
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
             group_by: SpaceGroupBy::Worktree,
+            mode: SpacePanelMode::Spaces,
         }
     }
 }
@@ -526,6 +541,19 @@ mod tests {
         );
         assert_eq!(config.spaces.row_gap, 0);
         assert_eq!(config.spaces.group_by, SpaceGroupBy::Worktree);
+        assert_eq!(config.spaces.mode, SpacePanelMode::Spaces);
+    }
+
+    #[test]
+    fn parses_space_panel_mode() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[ui.sidebar.spaces]
+mode = "agents"
+"#,
+        )
+        .expect("config parses");
+        assert_eq!(config.ui.sidebar.spaces.mode, SpacePanelMode::Agents);
     }
 
     #[test]

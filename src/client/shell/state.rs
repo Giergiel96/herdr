@@ -175,6 +175,7 @@ pub(super) struct ClientPaneMouseGesture {
 pub(super) struct ClientWorkspacePress {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
+    pub(super) pane_id: Option<String>,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -235,6 +236,8 @@ pub(super) struct WorkspaceHit {
     pub(super) rect: Rect,
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
+    /// Agent-tree rows focus this pane instead of only the workspace.
+    pub(super) pane_id: Option<String>,
     pub(super) indented: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
 }
@@ -1212,6 +1215,15 @@ impl ClientShellState {
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
         let group_by = self.config.spaces.group_by;
+        if self.config.spaces.mode == crate::config::SpacePanelMode::Agents
+            && !self.mobile_layout_active()
+        {
+            return super::agent_tree::navigation_entries(
+                snapshot,
+                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+                    .unwrap_or(&empty_collapsed_groups),
+            );
+        }
         if self.mobile_layout_active() {
             render::workspace_entries(snapshot, &empty_collapsed_groups, group_by)
         } else {

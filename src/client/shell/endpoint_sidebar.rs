@@ -190,6 +190,7 @@ pub(super) fn render_collapsed(
                 rect,
                 endpoint_id: endpoint.endpoint_id.clone(),
                 workspace_id: workspace.workspace_id.clone(),
+                pane_id: None,
                 indented: false,
                 group_toggle: None,
             });
@@ -526,6 +527,7 @@ pub(super) fn render_expanded(
                     },
                     endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
+                    pane_id: None,
                     indented: entry.indented,
                     group_toggle,
                 });

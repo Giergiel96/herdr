@@ -106,6 +106,7 @@ pub(crate) fn render_collapsed_sidebar(
             rect,
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
+            pane_id: None,
             indented: false,
             group_toggle: None,
         });
@@ -227,6 +228,101 @@ pub(crate) fn render_sidebar(
             .add_modifier(Modifier::BOLD),
     );
 
+    if config.spaces.mode == crate::config::SpacePanelMode::Agents {
+        super::agent_tree::render_agent_tree(buffer, workspace_area, snapshot, config, state, hits);
+    } else {
+        render_space_list(buffer, workspace_area, snapshot, config, state, hits);
+    }
+
+    let footer_y = workspace_area.bottom().saturating_sub(1);
+    if config.mouse_capture {
+        hits.new_workspace = Rect::new(
+            workspace_area.x,
+            footer_y,
+            5.min(workspace_area.width),
+            u16::from(workspace_area.height > 0),
+        );
+        put_text(
+            buffer,
+            workspace_area.x,
+            footer_y,
+            workspace_area.width,
+            " new",
+            Style::default().fg(palette.overlay0),
+        );
+        let attention = super::super::global_menu::global_menu_attention(snapshot);
+        let launcher_width = if attention { 8 } else { 6 }.min(workspace_area.width);
+        hits.global_launcher = Rect::new(
+            workspace_area.right().saturating_sub(launcher_width),
+            footer_y,
+            launcher_width,
+            1,
+        );
+        if attention {
+            let start_x = workspace_area.right().saturating_sub(6);
+            put_text(
+                buffer,
+                start_x,
+                footer_y,
+                2,
+                "● ",
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            );
+            put_text(
+                buffer,
+                start_x.saturating_add(2),
+                footer_y,
+                4,
+                "menu",
+                Style::default().fg(palette.overlay0),
+            );
+        } else {
+            put_right_text(
+                buffer,
+                workspace_area,
+                footer_y,
+                "menu",
+                Style::default().fg(palette.overlay0),
+            );
+        }
+    }
+
+    super::render_agent_panel(
+        buffer,
+        detail_area,
+        snapshot,
+        config,
+        state.agent_scroll,
+        hits,
+    );
+
+    hits.sidebar_toggle = Rect::new(
+        area.right().saturating_sub(2),
+        area.bottom().saturating_sub(1),
+        u16::from(area.width > 1),
+        u16::from(area.height > 0),
+    );
+    put_text(
+        buffer,
+        hits.sidebar_toggle.x,
+        hits.sidebar_toggle.y,
+        hits.sidebar_toggle.width,
+        "«",
+        Style::default().fg(palette.overlay0),
+    );
+}
+
+fn render_space_list(
+    buffer: &mut Buffer,
+    workspace_area: Rect,
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+    state: &mut ShellRenderState<'_>,
+    hits: &mut ShellHitMap,
+) {
+    let palette = &config.palette;
     let group_by = config.spaces.group_by;
     let entries = workspace_entries(snapshot, state.collapsed_groups, group_by);
     let body = Rect::new(
@@ -373,6 +469,7 @@ pub(crate) fn render_sidebar(
             },
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
+            pane_id: None,
             indented: entry.indented,
             group_toggle,
         });
@@ -401,85 +498,6 @@ pub(crate) fn render_sidebar(
             Style::default().fg(palette.accent),
         );
     }
-
-    let footer_y = workspace_area.bottom().saturating_sub(1);
-    if config.mouse_capture {
-        hits.new_workspace = Rect::new(
-            workspace_area.x,
-            footer_y,
-            5.min(workspace_area.width),
-            u16::from(workspace_area.height > 0),
-        );
-        put_text(
-            buffer,
-            workspace_area.x,
-            footer_y,
-            workspace_area.width,
-            " new",
-            Style::default().fg(palette.overlay0),
-        );
-        let attention = super::super::global_menu::global_menu_attention(snapshot);
-        let launcher_width = if attention { 8 } else { 6 }.min(workspace_area.width);
-        hits.global_launcher = Rect::new(
-            workspace_area.right().saturating_sub(launcher_width),
-            footer_y,
-            launcher_width,
-            1,
-        );
-        if attention {
-            let start_x = workspace_area.right().saturating_sub(6);
-            put_text(
-                buffer,
-                start_x,
-                footer_y,
-                2,
-                "● ",
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD),
-            );
-            put_text(
-                buffer,
-                start_x.saturating_add(2),
-                footer_y,
-                4,
-                "menu",
-                Style::default().fg(palette.overlay0),
-            );
-        } else {
-            put_right_text(
-                buffer,
-                workspace_area,
-                footer_y,
-                "menu",
-                Style::default().fg(palette.overlay0),
-            );
-        }
-    }
-
-    super::render_agent_panel(
-        buffer,
-        detail_area,
-        snapshot,
-        config,
-        state.agent_scroll,
-        hits,
-    );
-
-    hits.sidebar_toggle = Rect::new(
-        area.right().saturating_sub(2),
-        area.bottom().saturating_sub(1),
-        u16::from(area.width > 1),
-        u16::from(area.height > 0),
-    );
-    put_text(
-        buffer,
-        hits.sidebar_toggle.x,
-        hits.sidebar_toggle.y,
-        hits.sidebar_toggle.width,
-        "«",
-        Style::default().fg(palette.overlay0),
-    );
 }
 
 pub(crate) fn workspace_entries(

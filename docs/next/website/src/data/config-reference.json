@@ -1079,6 +1079,16 @@
           "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
         },
         {
+          "key": "ui.sidebar.spaces.mode",
+          "type": "enum",
+          "default": "spaces",
+          "description": "What the upper sidebar panel lists. spaces shows one entry per workspace. agents shows one entry per agent, grouped by the agent pane's working directory under collapsible headers, with subagents reported through the subagents pane token nested underneath; workspaces without an agent appear as dimmed shell rows. Clicking an agent row focuses its pane.",
+          "values": [
+            "spaces",
+            "agents"
+          ]
+        },
+        {
           "key": "ui.sidebar.spaces.group_by",
           "type": "enum",
           "default": "worktree",

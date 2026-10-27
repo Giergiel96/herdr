@@ -509,7 +509,8 @@ impl ClientShellState {
     }
 
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
-        if self.hits.workspace_body.height == 0
+        if self.config.spaces.mode == crate::config::SpacePanelMode::Agents
+            || self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
             || point.1 >= self.hits.new_workspace.y
             || self.hits.workspaces.iter().any(|hit| {
@@ -2107,6 +2108,7 @@ impl ClientShellState {
                     .map(|hit| ClientWorkspacePress {
                         endpoint_id: hit.endpoint_id.clone(),
                         workspace_id: hit.workspace_id.clone(),
+                        pane_id: hit.pane_id.clone(),
                         start_column: mouse.column,
                         start_row: mouse.row,
                     });

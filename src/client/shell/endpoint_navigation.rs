@@ -12,7 +12,8 @@ impl ClientShellState {
     }
 
     pub(super) fn endpoint_workspace_is_draggable(&self, press: &ClientWorkspacePress) -> bool {
-        press.endpoint_id == self.active_endpoint_id
+        press.pane_id.is_none()
+            && press.endpoint_id == self.active_endpoint_id
             && self
                 .snapshot
                 .as_deref()
@@ -35,11 +36,11 @@ impl ClientShellState {
         press: ClientWorkspacePress,
         outcome: &mut ClientShellInput,
     ) {
-        self.focus_or_activate(
-            press.endpoint_id,
-            ClientEndpointFocusTarget::Workspace(press.workspace_id),
-            outcome,
-        );
+        let target = match press.pane_id {
+            Some(pane_id) => ClientEndpointFocusTarget::Pane(pane_id),
+            None => ClientEndpointFocusTarget::Workspace(press.workspace_id),
+        };
+        self.focus_or_activate(press.endpoint_id, target, outcome);
     }
 
     pub(super) fn handle_endpoint_machine_click(
