@@ -27,6 +27,11 @@ Design constraints worth remembering:
 - Group keys are recomputed per entry during render. Fine for tens of workspaces; compute once per
   frame before proposing this upstream.
 
+Outside the repo: `~/.claude/hooks/herdr-subagents.sh` (registered in `~/.claude/settings.json`
+for `SubagentStart`, `SubagentStop` and `SessionStart`) writes the `subagents` pane token that the
+agents mode renders. It is a Claude Code hook, not part of herdr; keep it when reinstalling the
+herdr Claude integration, which only overwrites `herdr-agent-state.sh`.
+
 ## Rebasing on upstream
 
 ```sh
