@@ -452,7 +452,7 @@ fn render_subagent(
             x,
             line.y,
             label_right,
-            &format!(" ✦ {model}"),
+            &format!(" {} {model}", vendor_glyph(model)),
             Style::default()
                 .fg(palette.peach)
                 .add_modifier(Modifier::DIM),
@@ -480,6 +480,25 @@ fn render_focus_bar(buffer: &mut Buffer, rect: Rect, palette: &Palette) {
             "▎",
             Style::default().fg(palette.accent),
         );
+    }
+}
+
+/// Nerd Font vendor logo for a model name: Claude (`cod-claude`), OpenAI
+/// (`cod-openai`), otherwise a neutral spark.
+pub(super) fn vendor_glyph(model: &str) -> &'static str {
+    let model = model.to_ascii_lowercase();
+    if ["claude", "opus", "sonnet", "haiku", "fable", "mythos"]
+        .iter()
+        .any(|family| model.contains(family))
+    {
+        "\u{ec82}"
+    } else if ["gpt", "codex", "o1", "o3", "o4"]
+        .iter()
+        .any(|family| model.contains(family))
+    {
+        "\u{ec81}"
+    } else {
+        "✦"
     }
 }
 
@@ -751,6 +770,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["a", "b", "c"]
         );
+    }
+
+    #[test]
+    fn vendor_glyphs_follow_the_model_family() {
+        assert_eq!(vendor_glyph("haiku 5.5"), "\u{ec82}");
+        assert_eq!(vendor_glyph("Opus 5.5"), "\u{ec82}");
+        assert_eq!(vendor_glyph("gpt-5"), "\u{ec81}");
+        assert_eq!(vendor_glyph("mystery"), "✦");
     }
 
     #[test]

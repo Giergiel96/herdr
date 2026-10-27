@@ -381,7 +381,10 @@ fn agents_mode_lists_agents_by_cwd_with_subagents_and_shell_rows() {
     assert!(text.contains("client-shell"));
     assert!(text.contains("repo-reviewer"));
     assert!(text.contains("├ mateusz-coder"), "subagent rows: {text}");
-    assert!(text.contains("✦ haiku 5.5"), "subagent model: {text}");
+    assert!(
+        text.contains("\u{ec82} haiku 5.5"),
+        "subagent model with vendor glyph: {text}"
+    );
     assert!(text.contains("└ reviewer"), "last subagent: {text}");
     assert!(
         text.contains("services"),
