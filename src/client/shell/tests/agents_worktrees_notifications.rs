@@ -498,6 +498,38 @@ fn agent_bar_replaces_the_tab_row_with_the_focused_agent_and_its_tokens() {
 }
 
 #[test]
+fn direct_function_keys_enter_and_leave_workspace_navigation() {
+    let raw: Config = toml::from_str(
+        r#"
+[keys]
+workspace_picker = ["prefix+w", "f13"]
+focus_panes = "f15"
+"#,
+    )
+    .expect("config parses");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&raw));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+
+    let enter = state.handle_input_bytes(b"\x1b[25~");
+    assert!(enter.repaint, "f13 enters navigation");
+    assert_eq!(state.mode, ClientShellMode::Navigate);
+
+    let leave = state.handle_input_bytes(b"\x1b[28~");
+    assert!(leave.repaint, "f15 leaves navigation");
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+    assert!(state.navigate_workspace_id.is_none());
+
+    let idle = state.handle_input_bytes(b"\x1b[28~");
+    assert_eq!(
+        state.mode,
+        ClientShellMode::Terminal,
+        "f15 outside navigation is a no-op"
+    );
+    assert!(idle.actions.is_empty());
+}
+
+#[test]
 fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
     for linked_child in [false, true] {
         let mut projected = snapshot();

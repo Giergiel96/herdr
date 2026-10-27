@@ -148,6 +148,12 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                if action == crate::input::KeybindAction::FocusPanes {
+                    if self.mode == ClientShellMode::Navigate {
+                        self.cancel_navigate(outcome);
+                    }
+                    return;
+                }
                 if action == crate::input::KeybindAction::WorkspacePicker {
                     self.pending_workspace_highlight = None;
                     self.mobile_switcher_scroll = 0;
